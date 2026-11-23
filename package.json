@@ -1,6 +1,6 @@
 {
   "name": "cloud-netdisk",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Obsidian plugin for the 115 cloud drive, with an agent-facing MCP endpoint and a hard-coded safety policy.",
   "private": true,
   "scripts": {

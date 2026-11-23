@@ -218,7 +218,7 @@ export class Cloud115SettingTab extends PluginSettingTab {
       .addButton((btn) =>
         btn.setButtonText("复制 MCP 配置").onClick(async () => {
           const ok = await this.plugin.copyMcpConfig();
-          new Notice(ok ? "✅ MCP 配置已复制到剪贴板" : "⚠️ MCP 服务未运行，无法复制配置");
+          new Notice(ok ? "✅ MCP 配置已复制到剪贴板" : "⚠️ 复制失败：MCP 服务未运行，或剪贴板不可用");
         }),
       );
 
@@ -250,7 +250,7 @@ export class Cloud115SettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("立即备份整个库")
       .setDesc(
-        "打包整个 vault（含 .obsidian 插件配置）→ 上传到 115 的备份目录 → 校验 sha1 → 按保留数整理旧包。" +
+        `打包整个 vault（含 ${this.app.vault.configDir} 插件配置）→ 上传到 115 的备份目录 → 校验 sha1 → 按保留数整理旧包。` +
           "压缩由 7-Zip 完成，上传复用 115-MCP-Server 的分块上传逻辑。",
       )
       .addButton((btn) =>
@@ -332,7 +332,7 @@ export class Cloud115SettingTab extends PluginSettingTab {
     new Setting(containerEl)
       .setName("备份包里包含插件凭据")
       .setDesc(
-        "⚠️ 默认关闭。打开后 `.obsidian/plugins/*/data.json`（含 115 Cookie、API key）会被打进 zip 并上传。" +
+        `⚠️ 默认关闭。打开后 \`${this.app.vault.configDir}/plugins/*/data.json\`（含 115 Cookie、API key）会被打进 zip 并上传。` +
           "你的 VAULT-BACKUP-SPEC 第 10 节要求「永远不要上 115」，一般不要开。",
       )
       .addToggle((toggle) =>

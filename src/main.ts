@@ -15,23 +15,13 @@ import { BackupHandle, describeProgress, resolvePath, startVaultBackup } from ".
 import { detectServerPaths, isForeignServerPath, pathExists } from "./util/paths";
 import { decideDeletionRoute, quarantineDirName } from "./policy/quarantine";
 
-/** 剪贴板复制（优先 navigator.clipboard，失败时退回 DOM 复制）。 */
+/** 剪贴板复制（桌面端 navigator.clipboard 可用；失败时返回 false，由调用方提示）。 */
 async function copyToClipboard(text: string): Promise<boolean> {
   try {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
-    try {
-      const ta = createEl("textarea");
-      ta.value = text;
-      activeDocument.body.appendChild(ta);
-      ta.select();
-      activeDocument.execCommand("copy");
-      activeDocument.body.removeChild(ta);
-      return true;
-    } catch {
-      return false;
-    }
+    return false;
   }
 }
 

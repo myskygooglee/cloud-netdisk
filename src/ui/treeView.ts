@@ -131,7 +131,10 @@ export class TreeView extends ItemView {
       cls: "cloud-netdisk-backup-btn",
       text: this.plugin.isBackupRunning ? "备份中…" : "⬆ 备份到 115",
     });
-    backupBtn.setAttribute("title", "把整个库（含 .obsidian 配置）打成 zip 传到 115");
+    backupBtn.setAttribute(
+      "title",
+      `把整个库（含 ${this.app.vault.configDir} 配置）打成 zip 传到 115`,
+    );
     if (this.plugin.isBackupRunning) backupBtn.setAttribute("disabled", "true");
     backupBtn.addEventListener("click", (ev) => {
       ev.preventDefault();
