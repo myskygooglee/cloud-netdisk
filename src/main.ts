@@ -1,4 +1,5 @@
 import { Notice, Plugin } from "obsidian";
+import { randomBytes } from "crypto";
 import { AuthManager } from "./115/auth";
 import { AuditLog } from "./policy/audit";
 import { PolicyEngine } from "./policy/engine";
@@ -17,6 +18,7 @@ export default class Obsidian115Plugin extends Plugin {
 
   async onload(): Promise<void> {
     await this.loadSettings();
+    await this.ensureMcpToken();
 
     this.auth = new AuthManager(
       () => this.settings.cookie,
@@ -43,6 +45,7 @@ export default class Obsidian115Plugin extends Plugin {
       policy: this.policy,
       audit: this.audit,
       ensureQuarantineDir: async (name) => this.ensureQuarantineDir(name),
+      isWriteEnabled: () => this.settings.enableWriteTools,
     });
 
     this.registerView(VIEW_TYPE_115, (leaf) => new TreeView(leaf, this));
@@ -95,11 +98,66 @@ export default class Obsidian115Plugin extends Plugin {
       this.mcp = await startMcpServer({
         dispatcher: this.dispatcher,
         port: this.settings.mcpPort,
+        token: this.settings.mcpToken,
         onLog: (msg) => console.log("[obsidian-115]", msg),
       });
       new Notice(`115 MCP 已启动：${this.mcp.url}`);
     } catch (err) {
       new Notice(`115 MCP 启动失败：${(err as Error).message}`);
+    }
+  }
+
+  /** 确保存在一个持久化令牌（重启后不变，Copilot 配置不会失效） */
+  private async ensureMcpToken(): Promise<void> {
+    if (!this.settings.mcpToken || this.settings.mcpToken.length < 16) {
+      this.settings.mcpToken = randomBytes(24).toString("hex");
+      await this.saveSettings();
+    }
+  }
+
+  /** MCP 服务状态描述（设置页展示） */
+  mcpStatusText(): string {
+    if (!this.settings.enableMcp) return "MCP 服务已关闭";
+    if (!this.mcp) return "MCP 服务未运行（可尝试重启 Obsidian 或关闭再开启插件）";
+    return `运行中：${this.mcp.url}　|　模式：${this.settings.enableWriteTools ? "读写" : "只读"}`;
+  }
+
+  /** 生成给 Copilot 用的 MCP 配置 JSON */
+  buildMcpConfig(): string {
+    if (!this.mcp) return "";
+    const config = {
+      mcpServers: {
+        "obsidian-115": {
+          url: this.mcp.url,
+          headers: {
+            "x-115-token": this.settings.mcpToken,
+          },
+        },
+      },
+    };
+    return JSON.stringify(config, null, 2);
+  }
+
+  /** 复制 MCP 配置到剪贴板 */
+  async copyMcpConfig(): Promise<boolean> {
+    const text = this.buildMcpConfig();
+    if (!text) return false;
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // 剪贴板不可用时退回到 DOM 复制
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        return true;
+      } catch {
+        return false;
+      }
     }
   }
 

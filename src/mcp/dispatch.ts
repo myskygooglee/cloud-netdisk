@@ -19,6 +19,8 @@ export interface DispatchDeps {
   audit: AuditLog;
   /** 解析隔离目录 cid（不存在则创建） */
   ensureQuarantineDir: (name: string) => Promise<string>;
+  /** 是否放开写工具（默认只读） */
+  isWriteEnabled: () => boolean;
 }
 
 export interface ToolResult {
@@ -39,6 +41,13 @@ export class ToolDispatcher {
   async call(name: string, args: Record<string, any>): Promise<ToolResult> {
     const def = TOOLS.find((t) => t.name === name);
     if (!def) return fail(`未知工具：${name}`);
+
+    // 只读模式闸门：写工具默认关闭（先只读跑通链路，再逐步放开）
+    if (def.mutating && !this.deps.isWriteEnabled()) {
+      return fail(
+        `工具 ${name} 属于写操作，当前插件处于「只读模式」。请在 Obsidian 设置 → 115 Cloud → 放开写工具 后重试。`,
+      );
+    }
 
     try {
       switch (name) {

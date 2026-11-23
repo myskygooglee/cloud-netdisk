@@ -20,6 +20,10 @@ export interface Obsidian115Settings {
   maxWritesBeforeConfirm: number;
   /** 隔离目录根 cid（空 = 与目标同层时由插件创建） */
   quarantineRootCid: string;
+  /** MCP 令牌（持久化，重启后不变，避免 Copilot 配置失效） */
+  mcpToken: string;
+  /** 是否放开写工具给 agent（默认 false：先只读跑通） */
+  enableWriteTools: boolean;
 }
 
 export const DEFAULT_SETTINGS: Obsidian115Settings = {
@@ -32,6 +36,8 @@ export const DEFAULT_SETTINGS: Obsidian115Settings = {
   writeCooldownSeconds: 60,
   maxWritesBeforeConfirm: 3,
   quarantineRootCid: "",
+  mcpToken: "",
+  enableWriteTools: false,
 };
 
 export class Obsidian115SettingTab extends PluginSettingTab {
@@ -92,6 +98,38 @@ export class Obsidian115SettingTab extends PluginSettingTab {
             this.plugin.settings.mcpPort = n;
             await this.plugin.saveSettings();
           }
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("服务状态")
+      .setDesc(this.plugin.mcpStatusText())
+      .addButton((btn) =>
+        btn.setButtonText("复制 MCP 配置").onClick(async () => {
+          const ok = await this.plugin.copyMcpConfig();
+          new Notice(ok ? "✅ MCP 配置已复制到剪贴板" : "⚠️ MCP 服务未运行，无法复制配置");
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("令牌")
+      .setDesc("持久化保存，重启后不变。复制 MCP 配置时会一并带上。")
+      .addText((text) =>
+        text.setValue(this.plugin.settings.mcpToken).onChange(async (value) => {
+          this.plugin.settings.mcpToken = value.trim();
+          await this.plugin.saveSettings();
+          await this.plugin.restartMcp();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("放开写工具")
+      .setDesc("关闭时 agent 只能用只读工具（list_dir / stat / search / quota / health）。建议先只读跑通再放开。")
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.enableWriteTools).onChange(async (value) => {
+          this.plugin.settings.enableWriteTools = value;
+          await this.plugin.saveSettings();
+          new Notice(value ? "⚠️ 写工具已放开（仍受 AGENTS 策略约束）" : "已切换为只读模式");
         }),
       );
 

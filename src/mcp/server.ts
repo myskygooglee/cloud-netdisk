@@ -15,6 +15,8 @@ export interface McpServerOptions {
   /** 端口范围，0 表示自动 */
   port?: number;
   portRange?: [number, number];
+  /** 固定令牌（持久化时传入，避免重启后 Copilot 配置失效） */
+  token?: string;
   onLog?: (msg: string) => void;
 }
 
@@ -35,7 +37,7 @@ interface JsonRpcRequest {
 const PROTOCOL_VERSION = "2024-11-05";
 
 export async function startMcpServer(opts: McpServerOptions): Promise<McpServerInfo> {
-  const token = randomBytes(24).toString("hex");
+  const token = opts.token && opts.token.trim().length >= 16 ? opts.token.trim() : randomBytes(24).toString("hex");
   const log = opts.onLog ?? (() => undefined);
   const range: [number, number] = opts.portRange ?? [7300, 7399];
 
@@ -139,7 +141,7 @@ function rangeFilter(range: [number, number], exclude?: number): number[] {
   return out;
 }
 
-async function handleRpc(req: JsonRpcRequest, dispatcher: ToolDispatcher): Promise<any> {
+export async function handleRpc(req: JsonRpcRequest, dispatcher: ToolDispatcher): Promise<any> {
   const base = { jsonrpc: "2.0", id: req.id ?? null };
   switch (req.method) {
     case "initialize":
