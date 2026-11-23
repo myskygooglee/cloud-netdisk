@@ -92,12 +92,22 @@ export class Cloud115SettingTab extends PluginSettingTab {
     try {
       const qr = new QrLogin({ app: "web" });
       const session = await qr.start();
+      status.setText("正在获取二维码图片…");
       const img = box.createEl("img", { cls: "cloud-netdisk-qr-image" });
-      img.setAttribute("src", session.qrcode);
       img.setAttribute("alt", "115 登录二维码");
+      // 115 的 token 接口只给一个网页链接，图片要单独取（否则 <img> 裂图）
+      let dataUri = "";
+      try {
+        dataUri = await qr.fetchImage(session);
+      } catch (err) {
+        status.setText(`二维码图片加载失败：${(err as Error).message}（可用下方链接扫码）`);
+      }
+      if (dataUri) {
+        img.setAttribute("src", dataUri);
+        status.setText("等待扫码…（约 2 分钟内有效）");
+      }
       const link = box.createEl("a", { href: session.scanUrl, text: "在 115 App 中打开此链接" });
       link.setAttribute("target", "_blank");
-      status.setText("等待扫码…（约 2 分钟内有效）");
 
       for (let i = 0; i < 60; i++) {
         await new Promise((r) => window.setTimeout(r, 2000));

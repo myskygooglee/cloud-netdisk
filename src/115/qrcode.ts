@@ -14,6 +14,7 @@
  *    token 用的是默认 web 通道，与结果通道不一致。115 手机 App 扫码请用 app="web"。
  */
 
+import { requestUrl } from "obsidian";
 import { P115Error, classifyP115Error } from "./errors";
 import { HttpResponse, Transport, httpTransport } from "./client";
 import { rawStr } from "./types";
@@ -36,16 +37,39 @@ export interface QrSession {
 
 export interface QrLoginOptions {
   transport?: Transport;
+  /** 二进制传输（取二维码图片用）；默认走 Obsidian requestUrl 的 arrayBuffer */
+  binaryTransport?: (url: string, headers: Record<string, string>) => Promise<HttpResponse>;
   /** 扫码通道：115 手机 App 用 "web" */
   app?: string;
 }
 
+/** 默认二进制传输：用 `requestUrl` 拿 ArrayBuffer 再转 base64。 */
+const defaultBinaryTransport = async (url: string, headers: Record<string, string>): Promise<HttpResponse> => {
+  const res = await requestUrl({ url, method: "GET", headers, throw: false });
+  const buf = res.arrayBuffer;
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  const base64 = btoa(binary);
+  return {
+    status: res.status,
+    text: `<${bytes.length} bytes>`,
+    base64,
+    contentType: res.headers?.["content-type"] ?? res.headers?.["Content-Type"],
+  };
+};
+
 export class QrLogin {
   private readonly transport: Transport;
+  private readonly binaryTransport: (url: string, headers: Record<string, string>) => Promise<HttpResponse>;
   readonly app: string;
 
   constructor(opts: QrLoginOptions = {}) {
     this.transport = opts.transport ?? httpTransport;
+    this.binaryTransport = opts.binaryTransport ?? defaultBinaryTransport;
     this.app = opts.app ?? "web";
   }
 
@@ -82,6 +106,8 @@ export class QrLogin {
     const uid = rawStr(data.uid);
     if (!uid) throw new P115Error("unknown", "115 未返回二维码 uid", JSON.stringify(data).slice(0, 300));
     const raw = rawStr(data.qrcode);
+    // 115 的 token 接口**不返回图片**，`qrcode` 字段是 `https://115.com/scan/dg-<uid>` 网页链接。
+    // 真正的图片要走 /api/1.0/{app}/1.0/qrcode?uid=，见 fetchImage()。
     const qrcode = raw.startsWith("http") || raw.startsWith("data:") ? raw : `https://115.com/scan/dg-${uid}`;
     return {
       app: this.app,
@@ -91,6 +117,33 @@ export class QrLogin {
       qrcode,
       scanUrl: `https://115.com/scan/dg-${uid}`,
     };
+  }
+
+  /**
+   * 取二维码**图片**（PNG → data URI）。
+   *
+   * 2026-11-23 实测：`GET /api/1.0/{app}/1.0/qrcode?uid=<uid>` 返回
+   * `Content-Type: image/png`，约 500 字节（200×200 的二维码）。
+   * 直接把 token 里的 `qrcode`（那是个网页链接）塞进 `<img src>` 会显示裂图 ——
+   * 这就是设置页二维码显示不出来的根因。
+   */
+  async fetchImage(session: QrSession): Promise<string> {
+    const url = `${QRCODE_API}/api/1.0/${this.app}/1.0/qrcode?uid=${encodeURIComponent(session.uid)}`;
+    let res: HttpResponse;
+    try {
+      res = await this.binaryTransport(url, {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) 115Browser/36.2.28",
+        Referer: "https://115.com/",
+      });
+    } catch (err) {
+      const raw = err instanceof Error ? err.message : String(err);
+      throw new P115Error(classifyP115Error(raw), raw, raw);
+    }
+    if (!res.base64) {
+      throw new P115Error("unknown", "二维码图片接口未返回二进制内容", res.text.slice(0, 200));
+    }
+    const mime = res.contentType?.startsWith("image/") ? res.contentType : "image/png";
+    return `data:${mime};base64,${res.base64}`;
   }
 
   /** 第 2 步：轮询状态。 */

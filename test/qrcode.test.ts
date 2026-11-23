@@ -70,4 +70,30 @@ describe("扫码登录", () => {
     const { transport } = fakeTransport([{ state: false, error: "IP登录异常", errno: 0 }]);
     await expect(new QrLogin({ transport, app: "web" }).start()).rejects.toThrow(/IP登录异常/);
   });
+
+  it("二维码图片走 /api/1.0/{app}/1.0/qrcode?uid=，转成 data URI", async () => {
+    const seen: string[] = [];
+    const binaryTransport = async (url: string) => {
+      seen.push(url);
+      return {
+        status: 200,
+        text: "<531 bytes>",
+        base64: "iVBORw0KGgo=",
+        contentType: "image/png",
+      } as HttpResponse;
+    };
+    const qr = new QrLogin({ transport: fakeTransport([{ state: true, data: {} }]).transport, binaryTransport, app: "web" });
+    const uri = await qr.fetchImage({ app: "web", uid: "U1", time: 1, sign: "s", qrcode: "q", scanUrl: "u" });
+    expect(seen[0]).toBe("https://qrcodeapi.115.com/api/1.0/web/1.0/qrcode?uid=U1");
+    expect(uri).toBe("data:image/png;base64,iVBORw0KGgo=");
+  });
+
+  it("图片接口没给二进制时报错（不会静默裂图）", async () => {
+    const binaryTransport = async () =>
+      ({ status: 200, text: "not-an-image" }) as HttpResponse;
+    const qr = new QrLogin({ transport: fakeTransport([{ state: true, data: {} }]).transport, binaryTransport });
+    await expect(
+      qr.fetchImage({ app: "web", uid: "U", time: 1, sign: "s", qrcode: "q", scanUrl: "u" }),
+    ).rejects.toThrow(/二进制/);
+  });
 });

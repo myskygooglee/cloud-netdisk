@@ -239,6 +239,7 @@
   margin: 0 auto 8px;
   image-rendering: pixelated;
   background: #fff;
+  border: 1px solid var(--background-modifier-border);
 }
 
 .cloud-netdisk-qr-status {

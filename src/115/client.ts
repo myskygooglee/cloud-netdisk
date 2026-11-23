@@ -23,6 +23,10 @@ export interface HttpResponse {
   status: number;
   text: string;
   json?: unknown;
+  /** 二进制响应（图片等）的 base64；非二进制时为 undefined */
+  base64?: string;
+  /** response 的 Content-Type */
+  contentType?: string;
 }
 
 export type Transport = (opts: {
