@@ -8,7 +8,7 @@ $VaultArg = $null
 if ($args -contains "-Vault") { $VaultArg = $args[($args.IndexOf("-Vault") + 1)] }
 if (-not $VaultArg) {
     $known = @("F:\[ob]myskygooglee", "F:\[ob]LR-working", "D:\Books")
-    $VaultArg = $known | Where-Object { Test-Path (Join-Path $_ ".obsidian") } | Select-Object -First 1
+    $VaultArg = $known | Where-Object { Test-Path -LiteralPath (Join-Path $_ ".obsidian") } | Select-Object -First 1
 }
 if (-not $VaultArg) { throw "vault not found; pass -Vault <path>" }
 
@@ -24,13 +24,15 @@ try {
 }
 
 Write-Host "[2/3] 复制到 vault…" -ForegroundColor Cyan
-New-Item -ItemType Directory -Force -Path $Dest | Out-Null
+# 目标路径含 [ ]（vault 名），New-Item / Copy-Item 的 -Path 会当通配符解析，
+# 一律走 .NET API 按字面路径处理。
+[System.IO.Directory]::CreateDirectory($Dest) | Out-Null
 foreach ($f in @("manifest.json", "versions.json", "styles.css")) {
-    Copy-Item (Join-Path $Repo $f) (Join-Path $Dest $f) -Force
+    [System.IO.File]::Copy((Join-Path $Repo $f), (Join-Path $Dest $f), $true)
 }
-Copy-Item (Join-Path $Repo "dist\main.js") (Join-Path $Dest "main.js") -Force
-if (Test-Path (Join-Path $Repo "dist\main.js.map")) {
-    Copy-Item (Join-Path $Repo "dist\main.js.map") (Join-Path $Dest "main.js.map") -Force
+[System.IO.File]::Copy((Join-Path $Repo "dist\main.js"), (Join-Path $Dest "main.js"), $true)
+if (Test-Path -LiteralPath (Join-Path $Repo "dist\main.js.map")) {
+    [System.IO.File]::Copy((Join-Path $Repo "dist\main.js.map"), (Join-Path $Dest "main.js.map"), $true)
 }
 
 Write-Host "[3/3] 提示…" -ForegroundColor Cyan

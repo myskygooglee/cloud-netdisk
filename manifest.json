@@ -1,8 +1,8 @@
 {
   "id": "cloud-netdisk",
   "name": "115 Cloud",
-  "version": "0.2.1",
-  "minAppVersion": "1.5.0",
+  "version": "0.2.2",
+  "minAppVersion": "1.7.2",
   "description": "Browse and manage your 115 cloud drive, and expose safe 115 tools to your agent over a local MCP endpoint.",
   "author": "myskygoogle",
   "isDesktopOnly": true

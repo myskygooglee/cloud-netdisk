@@ -526,13 +526,13 @@ export default class Cloud115Plugin extends Plugin {
     const { workspace } = this.app;
     const existing = workspace.getLeavesOfType(VIEW_TYPE_115);
     if (existing.length) {
-      // revealLeaf 在 1.7.2 之前返回 void，不能 await（minAppVersion 仍是 1.5.0）
-      void workspace.revealLeaf(existing[0]);
+      // revealLeaf 自 1.7.2 起返回 Promise<void>，await 可确保视图已加载（minAppVersion ≥ 1.7.2）
+      await workspace.revealLeaf(existing[0]);
       return;
     }
     const leaf = workspace.getRightLeaf(false);
     if (!leaf) return;
     await leaf.setViewState({ type: VIEW_TYPE_115, active: true });
-    void workspace.revealLeaf(leaf);
+    await workspace.revealLeaf(leaf);
   }
 }
