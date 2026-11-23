@@ -2,7 +2,9 @@
 
 在 Obsidian 里浏览和管理你的 115 网盘，并把一组**带安全策略**的 115 工具通过本地 MCP 端点暴露给你的 Agent（Copilot / OpenCode / Claude 等）。
 
-> 插件 ID：`cloud-netdisk` | 版本：0.2.0 | 仅桌面端（需要 Node.js / 本地 HTTP 监听）
+> 插件 ID：`cloud-netdisk` | 版本：0.2.1 | 仅桌面端（需要 Node.js / 本地 HTTP 监听）
+
+> **English**: 115 Cloud browses and manages a 115 cloud drive inside Obsidian and exposes a token-protected local MCP endpoint so agents can call safe, policy-checked 115 tools. Desktop only; it needs Node.js and a local 115 MCP helper for the backup feature.
 
 ---
 

@@ -345,7 +345,7 @@ export class Cloud115SettingTab extends PluginSettingTab {
 
     // ------------------------------------------------ 使用指引（引导文案）
     const guideBox = containerEl.createDiv({ cls: "cloud-netdisk-guide" });
-    guideBox.createEl("h4", { cls: "cloud-netdisk-guide-title", text: "使用指引" });
+    new Setting(guideBox).setName("使用指引").setHeading().setClass("cloud-netdisk-guide-title");
     const guideText = guideBox.createDiv({ cls: "cloud-netdisk-guide-text" });
     guideText.setText(this.plugin.settings.enableWriteTools ? WRITE_MODE_BANNER : READ_ONLY_BANNER);
     new Setting(containerEl)

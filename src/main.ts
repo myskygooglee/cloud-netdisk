@@ -22,7 +22,7 @@ async function copyToClipboard(text: string): Promise<boolean> {
     return true;
   } catch {
     try {
-      const ta = activeDocument.createElement("textarea");
+      const ta = createEl("textarea");
       ta.value = text;
       activeDocument.body.appendChild(ta);
       ta.select();
@@ -526,12 +526,13 @@ export default class Cloud115Plugin extends Plugin {
     const { workspace } = this.app;
     const existing = workspace.getLeavesOfType(VIEW_TYPE_115);
     if (existing.length) {
-      await workspace.revealLeaf(existing[0]);
+      // revealLeaf 在 1.7.2 之前返回 void，不能 await（minAppVersion 仍是 1.5.0）
+      void workspace.revealLeaf(existing[0]);
       return;
     }
     const leaf = workspace.getRightLeaf(false);
     if (!leaf) return;
     await leaf.setViewState({ type: VIEW_TYPE_115, active: true });
-    await workspace.revealLeaf(leaf);
+    void workspace.revealLeaf(leaf);
   }
 }

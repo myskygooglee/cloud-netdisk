@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 jobs:
   build:
@@ -36,11 +38,21 @@ jobs:
             exit 1
           fi
 
+      - name: Prepare release assets
+        run: cp dist/main.js main.js
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            styles.css
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/main.js
+            main.js
             manifest.json
             styles.css
           generate_release_notes: true

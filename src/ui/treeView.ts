@@ -181,7 +181,7 @@ export class TreeView extends ItemView {
     if (!this.guardWriteEnabled()) return;
     const parentCid = this.currentCid();
     const parentName = this.crumbs[this.crumbs.length - 1]?.name ?? "根目录";
-    const input = activeDocument.createElement("input");
+    const input = createEl("input");
     input.type = "text";
     input.placeholder = "新目录名";
     input.className = "cloud-netdisk-inline-input";
@@ -225,7 +225,7 @@ export class TreeView extends ItemView {
 
   /** 行内简易菜单：用 Obsidian 的 Menu 更自然，但这里只用原生弹出层以免引入更多 API 依赖。 */
   private openRowMenu(anchor: HTMLElement, entry: P115Entry): void {
-    const menu = activeDocument.createElement("div");
+    const menu = createDiv();
     menu.addClass("cloud-netdisk-row-menu");
     activeDocument.body.appendChild(menu);
     const rect = anchor.getBoundingClientRect();
@@ -273,7 +273,7 @@ export class TreeView extends ItemView {
   }
 
   private renameEntry(entry: P115Entry): void {
-    const input = activeDocument.createElement("input");
+    const input = createEl("input");
     input.type = "text";
     input.value = entry.name;
     input.className = "cloud-netdisk-inline-input";
@@ -297,7 +297,7 @@ export class TreeView extends ItemView {
   }
 
   private moveEntry(entry: P115Entry): void {
-    const input = activeDocument.createElement("input");
+    const input = createEl("input");
     input.type = "text";
     input.placeholder = "目标目录 cid（可用侧栏文件详情复制）";
     input.className = "cloud-netdisk-inline-input";

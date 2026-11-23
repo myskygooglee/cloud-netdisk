@@ -343,6 +343,8 @@
 
 .cloud-netdisk-guide-title {
   margin: 0 0 6px;
+  padding: 0;
+  border: none;
 }
 
 .cloud-netdisk-guide-text {
