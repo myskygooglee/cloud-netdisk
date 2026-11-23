@@ -9,6 +9,7 @@ import { createServer, IncomingMessage, Server, ServerResponse } from "http";
 import { randomBytes } from "crypto";
 import { ToolDispatcher } from "./dispatch";
 import { toolSchemas } from "./tools";
+import { rawStr } from "../115/types";
 
 export interface McpServerOptions {
   dispatcher: ToolDispatcher;
@@ -31,7 +32,11 @@ interface JsonRpcRequest {
   jsonrpc: "2.0";
   id?: number | string | null;
   method: string;
-  params?: any;
+  params?: {
+    name?: unknown;
+    arguments?: unknown;
+    [key: string]: unknown;
+  };
 }
 
 const PROTOCOL_VERSION = "2024-11-05";
@@ -62,25 +67,27 @@ export async function startMcpServer(opts: McpServerOptions): Promise<McpServerI
 
     let body = "";
     req.on("data", (c) => (body += c));
-    req.on("end", async () => {
-      let payload: JsonRpcRequest | JsonRpcRequest[];
-      try {
-        payload = JSON.parse(body);
-      } catch {
-        res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32700, message: "parse error" } }));
-        return;
-      }
-      const requests = Array.isArray(payload) ? payload : [payload];
-      const responses: any[] = [];
-      for (const reqObj of requests) {
-        const result = await handleRpc(reqObj, opts.dispatcher);
-        if (result !== undefined) responses.push(result);
-      }
-      if (!responses.length) {
-        res.writeHead(202).end();
-        return;
-      }
-      res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(Array.isArray(payload) ? responses : responses[0]));
+    req.on("end", () => {
+      void (async () => {
+        let payload: JsonRpcRequest | JsonRpcRequest[];
+        try {
+          payload = JSON.parse(body) as JsonRpcRequest | JsonRpcRequest[];
+        } catch {
+          res.writeHead(400, { "Content-Type": "application/json" }).end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32700, message: "parse error" } }));
+          return;
+        }
+        const requests = Array.isArray(payload) ? payload : [payload];
+        const responses: unknown[] = [];
+        for (const reqObj of requests) {
+          const result = await handleRpc(reqObj, opts.dispatcher);
+          if (result !== undefined) responses.push(result);
+        }
+        if (!responses.length) {
+          res.writeHead(202).end();
+          return;
+        }
+        res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(Array.isArray(payload) ? responses : responses[0]));
+      })();
     });
   };
 
@@ -141,7 +148,7 @@ function rangeFilter(range: [number, number], exclude?: number): number[] {
   return out;
 }
 
-export async function handleRpc(req: JsonRpcRequest, dispatcher: ToolDispatcher): Promise<any> {
+export async function handleRpc(req: JsonRpcRequest, dispatcher: ToolDispatcher): Promise<unknown> {
   const base = { jsonrpc: "2.0", id: req.id ?? null };
   switch (req.method) {
     case "initialize":
@@ -160,8 +167,10 @@ export async function handleRpc(req: JsonRpcRequest, dispatcher: ToolDispatcher)
     case "tools/list":
       return { ...base, result: { tools: toolSchemas() } };
     case "tools/call": {
-      const name = String(req.params?.name ?? "");
-      const args = (req.params?.arguments ?? {}) as Record<string, any>;
+      const name = rawStr(req.params?.name);
+      const rawArgs = req.params?.arguments;
+      const args: Record<string, unknown> =
+        rawArgs !== null && typeof rawArgs === "object" ? (rawArgs as Record<string, unknown>) : {};
       const result = await dispatcher.call(name, args);
       return { ...base, result };
     }

@@ -221,6 +221,10 @@
   background: var(--background-secondary);
 }
 
+.cloud-115-guide-title {
+  margin: 0 0 6px;
+}
+
 .cloud-115-guide-text {
   font-size: var(--font-ui-small);
   white-space: pre-wrap;

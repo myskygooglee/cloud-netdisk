@@ -3,7 +3,7 @@
   "name": "115 Cloud",
   "version": "0.1.0",
   "minAppVersion": "1.5.0",
-  "description": "Browse and manage your 115 cloud drive inside Obsidian, and expose safe 115 tools to your agent over a local MCP endpoint.",
+  "description": "Browse and manage your 115 cloud drive, and expose safe 115 tools to your agent over a local MCP endpoint.",
   "author": "myskygoogle",
   "isDesktopOnly": true
 }

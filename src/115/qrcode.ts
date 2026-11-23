@@ -16,6 +16,8 @@
 
 import { P115Error, classifyP115Error } from "./errors";
 import { HttpResponse, Transport, httpTransport } from "./client";
+import { rawStr } from "./types";
+import type { Raw115Envelope, Raw115Object } from "./types";
 
 const QRCODE_API = "https://qrcodeapi.115.com";
 
@@ -47,7 +49,7 @@ export class QrLogin {
     this.app = opts.app ?? "web";
   }
 
-  private async get(url: string): Promise<any> {
+  private async get(url: string): Promise<Raw115Object> {
     let res: HttpResponse;
     try {
       res = await this.transport({
@@ -65,26 +67,27 @@ export class QrLogin {
     if (res.json === undefined) {
       throw new P115Error("unknown", "扫码接口返回了非 JSON 内容", res.text.slice(0, 300));
     }
-    const body = res.json as { state?: boolean; error?: string; errno?: number; data?: any };
+    const body = res.json as Raw115Envelope;
     if (body.state === false) {
       const msg = `${body.error ?? "unknown error"} errno=${body.errno ?? "?"}`;
       throw new P115Error(classifyP115Error(msg), msg, JSON.stringify(body).slice(0, 300));
     }
-    return body.data ?? body;
+    const data = body.data;
+    return data !== null && typeof data === "object" ? (data as Raw115Object) : {};
   }
 
   /** 第 1 步：取二维码。 */
   async start(): Promise<QrSession> {
     const data = await this.get(`${QRCODE_API}/api/1.0/${this.app}/1.0/token/`);
-    const uid = String(data?.uid ?? "");
+    const uid = rawStr(data.uid);
     if (!uid) throw new P115Error("unknown", "115 未返回二维码 uid", JSON.stringify(data).slice(0, 300));
-    const raw = String(data?.qrcode ?? "");
+    const raw = rawStr(data.qrcode);
     const qrcode = raw.startsWith("http") || raw.startsWith("data:") ? raw : `https://115.com/scan/dg-${uid}`;
     return {
       app: this.app,
       uid,
-      time: Number(data?.time ?? 0),
-      sign: String(data?.sign ?? ""),
+      time: Number(data.time ?? 0),
+      sign: rawStr(data.sign),
       qrcode,
       scanUrl: `https://115.com/scan/dg-${uid}`,
     };
@@ -98,7 +101,7 @@ export class QrLogin {
       sign: session.sign,
     });
     const data = await this.get(`${QRCODE_API}/get/status/?${qs.toString()}`);
-    const raw = Number(data?.status ?? 0);
+    const raw = Number(data.status ?? 0);
     const status: QrStatus =
       raw === 0 ? "waiting" : raw === 1 ? "scanned" : raw === 2 ? "signed_in" : raw === -1 ? "expired" : raw === -2 ? "canceled" : "unknown";
     return { status, raw };
@@ -119,12 +122,15 @@ export class QrLogin {
     if (res.json === undefined) {
       throw new P115Error("unknown", "扫码结果返回了非 JSON 内容", res.text.slice(0, 300));
     }
-    const body = res.json as { state?: boolean; error?: string; errno?: number; data?: any };
+    const body = res.json as Raw115Envelope;
     if (body.state === false) {
       const msg = `${body.error ?? "unknown error"} errno=${body.errno ?? "?"}`;
       throw new P115Error(classifyP115Error(msg), msg, JSON.stringify(body).slice(0, 300));
     }
-    const cookie = String(body?.data?.cookie ?? "");
+    const data = body.data;
+    const payload =
+      data !== null && typeof data === "object" ? (data as Raw115Object) : {};
+    const cookie = rawStr(payload.cookie);
     if (!cookie) throw new P115Error("unknown", "扫码成功但未返回 Cookie", JSON.stringify(body).slice(0, 300));
     return cookie;
   }

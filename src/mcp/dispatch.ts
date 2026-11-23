@@ -8,6 +8,7 @@ import { AuthManager } from "../115/auth";
 import { P115Client } from "../115/client";
 import { P115Error } from "../115/errors";
 import type { P115Entry } from "../115/types";
+import { rawNum, rawStr } from "../115/types";
 import { AuditLog } from "../policy/audit";
 import { BreakerOpenError, NeedsConfirmationError, PolicyEngine } from "../policy/engine";
 import { decideDeletionRoute, quarantineDirName } from "../policy/quarantine";
@@ -50,7 +51,7 @@ export class ToolDispatcher {
     return this.deps.auth.getClient();
   }
 
-  async call(name: string, args: Record<string, any>): Promise<ToolResult> {
+  async call(name: string, args: Record<string, unknown>): Promise<ToolResult> {
     const def = TOOLS.find((t) => t.name === name);
     if (!def) return fail(`未知工具：${name}`);
 
@@ -74,9 +75,9 @@ export class ToolDispatcher {
     try {
       switch (name) {
         case "list_dir": {
-          const cid = String(args.cid ?? this.client.rootCid);
-          const offset = Number(args.offset ?? 0);
-          const limit = Math.min(Number(args.limit ?? 200), 1000);
+          const cid = (rawStr(args.cid) || this.client.rootCid);
+          const offset = rawNum(args.offset);
+          const limit = Math.min(rawNum(args.limit, 200), 1000);
           const res = await this.deps.policy.read(() => this.client.listDir(cid, offset, limit));
           const head = {
             cid,
@@ -87,17 +88,17 @@ export class ToolDispatcher {
           return ok(JSON.stringify({ ...head, entries: res.entries.map(brief) }, null, 2));
         }
         case "stat": {
-          const target = String(args.cid_or_fid);
+          const target = rawStr(args.cid_or_fid);
           if (!target || target === "0") return fail("stat 需要具体的 cid 或 fid（根目录不支持）");
           const hit = await this.deps.policy.read(() => this.client.stat(target));
           if (!hit) return fail(`未找到目标：${target}`);
           return ok(JSON.stringify(brief(hit), null, 2));
         }
         case "search": {
-          const q = String(args.query ?? "").trim();
+          const q = rawStr(args.query).trim();
           if (!q) return fail("search 需要非空关键词");
-          const page = Math.max(1, Number(args.page ?? 1));
-          const limit = Math.min(Number(args.limit ?? 100), 1000);
+          const page = Math.max(1, rawNum(args.page, 1));
+          const limit = Math.min(rawNum(args.limit, 100), 1000);
           const res = await this.deps.policy.read(() => this.client.search(q, (page - 1) * limit, limit));
           return ok(JSON.stringify({ query: q, page, count: res.length, entries: res.map(brief) }, null, 2));
         }
@@ -133,8 +134,8 @@ export class ToolDispatcher {
           return ok(JSON.stringify(result, null, 2));
         }
         case "mkdir": {
-          const pid = String(args.pid);
-          const dirName = String(args.name);
+          const pid = rawStr(args.pid);
+          const dirName = rawStr(args.name);
           const created = await this.deps.policy.write(() => this.client.mkdir(pid, dirName));
           this.deps.audit.write({
             action: "mkdir",
@@ -149,23 +150,23 @@ export class ToolDispatcher {
           );
         }
         case "rename": {
-          const fid = String(args.fid);
-          const newName = String(args.new_name);
+          const fid = rawStr(args.fid);
+          const newName = rawStr(args.new_name);
           await this.deps.policy.write(() => this.client.rename(fid, newName));
           this.deps.audit.write({ action: "rename", fid, path: newName, result: "ok" });
           return ok(`已重命名为 ${newName}`);
         }
         case "move": {
-          const fid = String(args.fid);
-          const toPid = String(args.to_pid);
+          const fid = rawStr(args.fid);
+          const toPid = rawStr(args.to_pid);
           await this.deps.policy.write(() => this.client.move(fid, toPid));
           this.deps.audit.write({ action: "move", fid, path: toPid, result: "ok" });
           return ok(`已移动（fid=${fid} → 目录 cid=${toPid}）`);
         }
         case "quarantine": {
-          const fid = String(args.fid);
-          const fileName = String(args.name);
-          const size = Number(args.size ?? 0);
+          const fid = rawStr(args.fid);
+          const fileName = rawStr(args.name);
+          const size = rawNum(args.size);
           const decision = decideDeletionRoute(fileName, size);
           if (decision.route === "direct_delete") {
             throw new PolicyRejectedError(
@@ -186,9 +187,9 @@ export class ToolDispatcher {
           return ok(`已隔离到 ${dirName}/（${decision.reason}）。人工确认后可清空隔离目录。`);
         }
         case "delete_small_garbage": {
-          const fid = String(args.fid);
-          const fileName = String(args.name);
-          const size = Number(args.size ?? 0);
+          const fid = rawStr(args.fid);
+          const fileName = rawStr(args.name);
+          const size = rawNum(args.size);
           const decision = decideDeletionRoute(fileName, size);
           if (decision.route !== "direct_delete") {
             throw new PolicyRejectedError(`拒绝直接删除：${decision.reason}。请改用 quarantine。`);
@@ -216,9 +217,9 @@ export class ToolDispatcher {
       if (err instanceof PolicyRejectedError) {
         this.deps.audit.write({
           action: `tool:${name}`,
-          fid: args.fid !== undefined ? String(args.fid) : undefined,
-          size: args.size !== undefined ? Number(args.size) : undefined,
-          path: args.name !== undefined ? String(args.name) : undefined,
+          fid: args.fid !== undefined ? rawStr(args.fid) : undefined,
+          size: args.size !== undefined ? rawNum(args.size) : undefined,
+          path: args.name !== undefined ? rawStr(args.name) : undefined,
           result: "failed",
           detail: `policy_rejected: ${err.message}`,
         });
@@ -238,8 +239,8 @@ export class ToolDispatcher {
       const e = err instanceof P115Error ? err : new P115Error("unknown", (err as Error).message);
       this.deps.audit.write({
         action: `tool:${name}`,
-        fid: args.fid !== undefined ? String(args.fid) : undefined,
-        size: args.size !== undefined ? Number(args.size) : undefined,
+        fid: args.fid !== undefined ? rawStr(args.fid) : undefined,
+        size: args.size !== undefined ? rawNum(args.size) : undefined,
         result: "failed",
         detail: e.raw || e.message,
       });

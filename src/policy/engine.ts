@@ -45,7 +45,7 @@ export interface PolicyOptions {
 }
 
 const defaultNow = () => Date.now();
-const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const defaultSleep = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 
 export class PolicyEngine {
   private readonly minReadIntervalMs: number;

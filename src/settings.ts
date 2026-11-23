@@ -76,7 +76,7 @@ export class Cloud115SettingTab extends PluginSettingTab {
       status.setText("等待扫码…（约 2 分钟内有效）");
 
       for (let i = 0; i < 60; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
+        await new Promise((r) => window.setTimeout(r, 2000));
         const st = await qr.status(session);
         if (st.status === "scanned") {
           status.setText("已扫码，请在手机上确认登录…");
@@ -204,9 +204,8 @@ export class Cloud115SettingTab extends PluginSettingTab {
 
     // ------------------------------------------------ 使用指引（引导文案）
     const guideBox = containerEl.createDiv({ cls: "cloud-115-guide" });
-    const guideTitle = guideBox.createEl("h4", { text: "使用指引" });
-    guideTitle.setAttribute("style", "margin-bottom:6px");
-    const guideText = guideBox.createEl("div", { cls: "cloud-115-guide-text" });
+    guideBox.createEl("h4", { cls: "cloud-115-guide-title", text: "使用指引" });
+    const guideText = guideBox.createDiv({ cls: "cloud-115-guide-text" });
     guideText.setText(this.plugin.settings.enableWriteTools ? WRITE_MODE_BANNER : READ_ONLY_BANNER);
     new Setting(containerEl)
       .setName("复制 agent 使用指引")
@@ -298,7 +297,7 @@ export class Cloud115SettingTab extends PluginSettingTab {
       .setName("115 全局锁状态")
       .setDesc(
         lockStatus.locked
-          ? `⛔ ${lockStatus.detail}　—　插件此时会拒绝所有 115 请求（AGENTS：禁止并发）`
+          ? `⛔ ${lockStatus.detail} — 插件此时会拒绝所有 115 请求（AGENTS：禁止并发）`
           : `✅ ${lockStatus.detail}`,
       )
       .addButton((btn) =>

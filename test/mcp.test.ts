@@ -14,14 +14,14 @@ const fakeDispatcher = {
 
 describe("MCP JSON-RPC", () => {
   it("initialize 返回协议版本与 serverInfo", async () => {
-    const res = await handleRpc({ jsonrpc: "2.0", id: 1, method: "initialize" }, fakeDispatcher);
+    const res = (await handleRpc({ jsonrpc: "2.0", id: 1, method: "initialize" }, fakeDispatcher)) as any;
     expect(res.result.protocolVersion).toBeTruthy();
     expect(res.result.serverInfo.name).toBe("cloud-115");
     expect(res.result.capabilities.tools).toBeTruthy();
   });
 
   it("tools/list 返回工具清单，且写工具只收单数参数", async () => {
-    const res = await handleRpc({ jsonrpc: "2.0", id: 2, method: "tools/list" }, fakeDispatcher);
+    const res = (await handleRpc({ jsonrpc: "2.0", id: 2, method: "tools/list" }, fakeDispatcher)) as any;
     const tools = res.result.tools;
     expect(tools.length).toBeGreaterThan(5);
     const listDir = tools.find((t: any) => t.name === "list_dir");
@@ -32,10 +32,10 @@ describe("MCP JSON-RPC", () => {
   });
 
   it("tools/call 透传参数给 dispatcher", async () => {
-    const res = await handleRpc(
+    const res = (await handleRpc(
       { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "list_dir", arguments: { cid: "123" } } },
       fakeDispatcher,
-    );
+    )) as any;
     expect(res.result.content[0].text).toContain("called list_dir");
     expect(res.result.content[0].text).toContain("123");
   });
@@ -46,7 +46,7 @@ describe("MCP JSON-RPC", () => {
   });
 
   it("未知方法返回 -32601", async () => {
-    const res = await handleRpc({ jsonrpc: "2.0", id: 4, method: "nope" }, fakeDispatcher);
+    const res = (await handleRpc({ jsonrpc: "2.0", id: 4, method: "nope" }, fakeDispatcher)) as any;
     expect(res.error.code).toBe(-32601);
   });
 });

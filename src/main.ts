@@ -18,12 +18,12 @@ async function copyToClipboard(text: string): Promise<boolean> {
     return true;
   } catch {
     try {
-      const ta = document.createElement("textarea");
+      const ta = activeDocument.createElement("textarea");
       ta.value = text;
-      document.body.appendChild(ta);
+      activeDocument.body.appendChild(ta);
       ta.select();
-      document.execCommand("copy");
-      document.body.removeChild(ta);
+      activeDocument.execCommand("copy");
+      activeDocument.body.removeChild(ta);
       return true;
     } catch {
       return false;
@@ -106,13 +106,14 @@ export default class Cloud115Plugin extends Plugin {
     }
   }
 
-  async onunload(): Promise<void> {
-    await this.mcp?.close();
+  onunload(): void {
+    void this.mcp?.close();
     this.mcp = null;
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = { ...DEFAULT_SETTINGS, ...(await this.loadData()) };
+    const saved = (await this.loadData()) as Partial<Cloud115Settings> | null;
+    this.settings = { ...DEFAULT_SETTINGS, ...saved };
   }
 
   async saveSettings(): Promise<void> {
@@ -134,7 +135,7 @@ export default class Cloud115Plugin extends Plugin {
         dispatcher: this.dispatcher,
         port: this.settings.mcpPort,
         token: this.settings.mcpToken,
-        onLog: (msg) => console.log("[cloud-115]", msg),
+        onLog: (msg) => console.debug("[cloud-115]", msg),
       });
       new Notice(`115 MCP 已启动：${this.mcp.url}`);
     } catch (err) {
@@ -154,7 +155,7 @@ export default class Cloud115Plugin extends Plugin {
   mcpStatusText(): string {
     if (!this.settings.enableMcp) return "MCP 服务已关闭";
     if (!this.mcp) return "MCP 服务未运行（可尝试重启 Obsidian 或关闭再开启插件）";
-    return `运行中：${this.mcp.url}　|　模式：${this.settings.enableWriteTools ? "读写" : "只读"}`;
+    return `运行中：${this.mcp.url} | 模式：${this.settings.enableWriteTools ? "读写" : "只读"}`;
   }
 
   /** 生成给 Copilot 用的 MCP 配置 JSON */

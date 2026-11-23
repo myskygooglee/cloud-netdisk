@@ -189,7 +189,7 @@ export class TreeView extends ItemView {
       body.createDiv({ cls: "cloud-115-empty", text: "没有匹配的条目" });
       return;
     }
-    for (const entry of this.searchResults) this.renderRow(body, entry, 0, false);
+    for (const entry of this.searchResults) void this.renderRow(body, entry, 0, false);
   }
 
   /** 渲染某一层的条目；`depth` 用于缩进。 */
@@ -230,7 +230,7 @@ export class TreeView extends ItemView {
     twisty.setText(entry.isDir ? (isExpanded ? "▾" : "▸") : " ");
     const icon = row.createSpan({ cls: "cloud-115-ico", text: entry.isDir ? "📁" : "📄" });
     const label = row.createSpan({ cls: "cloud-115-name", text: entry.name });
-    const meta = row.createSpan({
+    row.createSpan({
       cls: "cloud-115-meta",
       text: entry.isDir ? "" : formatBytes(entry.size),
     });
@@ -256,16 +256,18 @@ export class TreeView extends ItemView {
     const children = parent.createDiv({ cls: "cloud-115-children" });
     if (isExpanded) await this.renderLevel(children, entry.id, depth + 1);
 
-    row.addEventListener("click", async () => {
-      if (this.expanded.has(entry.id)) {
-        this.expanded.delete(entry.id);
-        children.empty();
-        twisty.setText("▸");
-        return;
-      }
-      this.expanded.add(entry.id);
-      twisty.setText("▾");
-      await this.renderLevel(children, entry.id, depth + 1);
+    row.addEventListener("click", () => {
+      void (async () => {
+        if (this.expanded.has(entry.id)) {
+          this.expanded.delete(entry.id);
+          children.empty();
+          twisty.setText("▸");
+          return;
+        }
+        this.expanded.add(entry.id);
+        twisty.setText("▾");
+        await this.renderLevel(children, entry.id, depth + 1);
+      })();
     });
   }
 
@@ -288,15 +290,17 @@ export class TreeView extends ItemView {
       ];
       box.createEl("pre", { text: lines.join("\n") });
       const copy = box.createEl("button", { text: "复制 fid" });
-      copy.addEventListener("click", async (ev) => {
-        ev.stopPropagation();
-        const fid = full?.fid ?? entry.fid ?? "";
-        try {
-          await navigator.clipboard.writeText(fid);
-          new Notice(`已复制 fid：${fid}`);
-        } catch {
-          new Notice("复制失败");
-        }
+      copy.addEventListener("click", (ev) => {
+        void (async () => {
+          ev.stopPropagation();
+          const fid = full?.fid ?? entry.fid ?? "";
+          try {
+            await navigator.clipboard.writeText(fid);
+            new Notice(`已复制 fid：${fid}`);
+          } catch {
+            new Notice("复制失败");
+          }
+        })();
       });
     } catch (err) {
       box.setText(`元数据读取失败：${(err as Error).message}`);

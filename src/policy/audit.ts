@@ -39,7 +39,7 @@ export class AuditLog {
   /** 读取最近 N 条（UI 展示用）。 */
   readRecent(limit = 50): AuditRecord[] {
     try {
-      const content = readFileSync(this.file, "utf-8") as string;
+      const content = readFileSync(this.file, "utf-8");
       const lines = content.trim().split("\n").filter(Boolean);
       return lines
         .slice(-limit)

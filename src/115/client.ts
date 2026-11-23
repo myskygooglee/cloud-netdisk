@@ -9,7 +9,15 @@
 
 import { requestUrl } from "obsidian";
 import { P115Error, classifyP115Error } from "./errors";
-import type { P115Entry, P115ListResult, P115Quota } from "./types";
+import { rawStr } from "./types";
+import type {
+  P115Entry,
+  P115ListResult,
+  P115Quota,
+  Raw115Entry,
+  Raw115Envelope,
+  Raw115Object,
+} from "./types";
 
 export interface HttpResponse {
   status: number;
@@ -53,7 +61,7 @@ const WEB = "https://webapi.115.com";
  *  - 大小字段是 `s`（字符串），sha1 字段是 `sha`（大写十六进制），mtime 是 `te`（秒）。
  *  - 搜索接口会把关键词用 <b> 高亮塞进 `n` 里，这里取纯文本 `n`（115 同时给 `n` 已是纯文本）。
  */
-function mapEntry(it: any): P115Entry {
+function mapEntry(it: Raw115Entry): P115Entry {
   const hasFid = it.fid !== undefined && it.fid !== null && it.fid !== "";
   const fc = it.fc === undefined ? undefined : Number(it.fc);
   const isDir = fc === 0 || (!hasFid && it.cid !== undefined);
@@ -63,6 +71,7 @@ function mapEntry(it: any): P115Entry {
   const pid = isDir ? String(it.pid ?? "0") : String(it.cid ?? it.pid ?? "0");
   const id = isDir ? String(ownCid ?? it.fid ?? "") : String(it.fid ?? ownCid ?? "");
   const epoch = Number(it.te ?? it.tp ?? (typeof it.t === "number" ? it.t : 0));
+  const sha1 = it.sha ?? it.sha1;
   return {
     id,
     cid: isDir ? ownCid : undefined,
@@ -70,13 +79,23 @@ function mapEntry(it: any): P115Entry {
     pid,
     name: String(it.n ?? it.file_name ?? ""),
     size: Number(it.s ?? it.size ?? it.file_size ?? 0),
-    sha1: (it.sha ?? it.sha1) || undefined,
+    sha1: sha1 ? sha1 : undefined,
     ico: it.ico ?? undefined,
     isDir,
     mtime: Number.isFinite(epoch) && epoch > 0 ? epoch : undefined,
     ctime: Number(it.c ?? it.tp ?? 0) || undefined,
     pickcode: it.pc ?? it.pickcode,
   };
+}
+
+/** 把 `unknown` 收敛成对象；非对象一律返回空对象。 */
+function asObject(value: unknown): Raw115Object {
+  return value !== null && typeof value === "object" ? (value as Raw115Object) : {};
+}
+
+/** 把 `unknown` 收敛成对象数组。 */
+function asArray(value: unknown): Raw115Object[] {
+  return Array.isArray(value) ? (value as Raw115Object[]) : [];
 }
 
 function form(fields: Record<string, string | number | undefined>): string {
@@ -121,7 +140,7 @@ export class P115Client {
   }
 
   /** 解析 JSON；返回 HTML 时判定为会话/WAF 失效。 */
-  private parseJson(res: HttpResponse): any {
+  private parseJson(res: HttpResponse): Raw115Envelope {
     if (res.json === undefined) {
       throw new P115Error(
         "session_expired",
@@ -129,13 +148,17 @@ export class P115Client {
         res.text.slice(0, 400),
       );
     }
-    return res.json as { state?: boolean; error?: string; errno?: number; data?: any };
+    return asObject(res.json);
   }
 
   /** 统一请求：带 cookie、解析 JSON、把异常归一化成 P115Error。 */
-  private async request(path: string, method: "GET" | "POST", fields: Record<string, string | number | undefined> = {}): Promise<any> {
+  private async request(
+    path: string,
+    method: "GET" | "POST",
+    fields: Record<string, string | number | undefined> = {},
+  ): Promise<Raw115Object> {
     const body = await this.requestRaw(path, method, fields);
-    return body.data ?? body;
+    return asObject(body.data ?? body);
   }
 
   /** 同 request，但返回**未拆壳**的完整响应体（需要 `count` / `path` 这类外层字段时用）。 */
@@ -143,7 +166,7 @@ export class P115Client {
     path: string,
     method: "GET" | "POST",
     fields: Record<string, string | number | undefined> = {},
-  ): Promise<any> {
+  ): Promise<Raw115Envelope> {
     let res: HttpResponse;
     try {
       res = await this.transport({
@@ -189,16 +212,16 @@ export class P115Client {
       show_dir: "1",
     });
     const body = await this.requestRaw(`/files?${qs.toString()}`, "GET");
-    const list: any[] = Array.isArray(body.data) ? body.data : [];
+    const list = asArray(body.data) as Raw115Entry[];
     const entries = list.map(mapEntry);
-    const total = Number(body?.count ?? entries.length);
+    const total = Number(body.count ?? entries.length);
     return {
       entries,
       total,
       hasMore: offset + entries.length < total,
       // `/files` 会在 path 里回带从根到当前目录的完整链路，UI 面包屑直接可用
-      path: Array.isArray(body?.path)
-        ? body.path.map((p: any) => ({ cid: String(p.cid ?? "0"), name: String(p.name ?? "") }))
+      path: Array.isArray(body.path)
+        ? body.path.map((p) => ({ cid: String(p.cid ?? "0"), name: String(p.name ?? "") }))
         : undefined,
     };
   }
@@ -211,8 +234,8 @@ export class P115Client {
       headers: this.headers(),
     });
     const body = this.parseJson(res);
-    const data = (body?.data ?? body) as Record<string, any>;
-    const main = data?.["1"] ?? data?.["0"] ?? {};
+    const data = asObject(body.data ?? body);
+    const main = asObject(data["1"] ?? data["0"]);
     const total = Number(main.total ?? data.total ?? 0);
     const used = Number(main.used ?? data.used ?? 0);
     return { total, used, free: Math.max(0, total - used) };
@@ -221,11 +244,13 @@ export class P115Client {
   /** 账号信息（含风控标记 violation_info / checking_info）。 */
   async account(): Promise<{ user_id: string; user_name: string; violation_info: unknown[]; checking_info: unknown[] }> {
     const data = await this.request("/user/info", "GET");
+    const violation = data.violation_info;
+    const checking = data.checking_info;
     return {
-      user_id: String(data?.user_id ?? data?.userId ?? ""),
-      user_name: String(data?.user_name ?? data?.userName ?? ""),
-      violation_info: Array.isArray(data?.violation_info) ? data.violation_info : [],
-      checking_info: Array.isArray(data?.checking_info) ? data.checking_info : [],
+      user_id: rawStr(data.user_id ?? data.userId),
+      user_name: rawStr(data.user_name ?? data.userName),
+      violation_info: Array.isArray(violation) ? violation : [],
+      checking_info: Array.isArray(checking) ? checking : [],
     };
   }
 
@@ -240,7 +265,8 @@ export class P115Client {
       search_value: query,
     });
     const data = await this.request(`/files/search?${qs.toString()}`, "GET");
-    const list: any[] = Array.isArray(data) ? data : (data?.data ?? data?.list ?? []);
+    const raw = Array.isArray(data) ? data : (data.data ?? data.list ?? []);
+    const list = asArray(raw) as Raw115Entry[];
     return list.map(mapEntry);
   }
 
@@ -253,7 +279,8 @@ export class P115Client {
    */
   async stat(id: string): Promise<P115Entry | null> {
     const data = await this.request(`/files/get_info?file_id=${encodeURIComponent(id)}`, "GET");
-    const list: any[] = Array.isArray(data) ? data : (data?.data ?? []);
+    const raw = Array.isArray(data) ? data : (data.data ?? []);
+    const list = asArray(raw) as Raw115Entry[];
     const first = list[0];
     return first ? mapEntry(first) : null;
   }
@@ -268,9 +295,9 @@ export class P115Client {
    */
   async mkdir(pid: string, name: string): Promise<{ cid: string } | null> {
     const body = await this.requestRaw("/files/add", "POST", { cname: name, pid: String(pid) });
-    const data = body.data ?? body;
-    const cid = data?.cid ?? data?.file_id;
-    return cid ? { cid: String(cid) } : null;
+    const data = asObject(body.data ?? body);
+    const cid = data.cid ?? data.file_id;
+    return cid ? { cid: rawStr(cid) } : null;
   }
 
   /** 重命名：POST /files/batch_rename {files_new_name[fid]: 新名}（必须带扩展名） */
