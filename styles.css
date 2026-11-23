@@ -1,0 +1,41 @@
+.obsidian-115-health.is-ok {
+  color: var(--text-success, #2e7d32);
+}
+
+.obsidian-115-health.is-bad {
+  color: var(--text-error, #c62828);
+}
+
+.obsidian-115-list {
+  margin-top: 8px;
+  font-size: var(--font-ui-small);
+}
+
+.obsidian-115-row {
+  padding: 2px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.obsidian-115-qr {
+  margin: 8px 0 12px;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+}
+
+.obsidian-115-qr-image {
+  display: block;
+  width: 220px;
+  height: 220px;
+  margin: 0 auto 8px;
+  image-rendering: pixelated;
+  background: #fff;
+}
+
+.obsidian-115-qr-status {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  text-align: center;
+}

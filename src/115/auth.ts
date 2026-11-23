@@ -16,6 +16,8 @@ export interface AuthState {
   fileApiOk: boolean;
   /** 账号接口返回的用户名 */
   userName?: string;
+  /** 风控标记：violation_info / checking_info，任一非空即视为有风控 */
+  hasRisk: boolean;
   /** 失败原因 */
   reason?: string;
 }
@@ -71,24 +73,27 @@ export class AuthManager {
    */
   async healthCheck(): Promise<AuthState> {
     if (!this.hasCookie()) {
-      return { hasCookie: false, fileApiOk: false, reason: "未配置 Cookie" };
+      return { hasCookie: false, fileApiOk: false, hasRisk: false, reason: "未配置 Cookie" };
     }
     const client = this.getClient();
     let userName: string | undefined;
+    let hasRisk = false;
     try {
       const acc = await client.account();
       userName = acc.user_name || undefined;
+      hasRisk = acc.violation_info.length > 0 || acc.checking_info.length > 0;
     } catch (err) {
-      return { hasCookie: true, fileApiOk: false, reason: `账号接口失败：${(err as Error).message}` };
+      return { hasCookie: true, fileApiOk: false, hasRisk: false, reason: `账号接口失败：${(err as Error).message}` };
     }
     try {
       await client.listDir(client.rootCid, 0, 1);
-      return { hasCookie: true, fileApiOk: true, userName };
+      return { hasCookie: true, fileApiOk: true, userName, hasRisk };
     } catch (err) {
       return {
         hasCookie: true,
         fileApiOk: false,
         userName,
+        hasRisk,
         reason: `文件接口失败（多为 acw_tc / 会话过期）：${(err as Error).message}`,
       };
     }

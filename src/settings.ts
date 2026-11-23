@@ -1,4 +1,5 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
+import { QrLogin } from "./115/qrcode";
 import type Obsidian115Plugin from "./main";
 
 export interface Obsidian115Settings {
@@ -45,6 +46,53 @@ export class Obsidian115SettingTab extends PluginSettingTab {
     super(app, plugin);
   }
 
+  /**
+   * 扫码登录：生成二维码 → 轮询状态 → 抓 Cookie → 保存 → 健康检查。
+   * 全部在设置页内完成，不需要手工粘贴 Cookie。
+   */
+  private async runQrLogin(box: HTMLElement): Promise<void> {
+    box.empty();
+    const status = box.createDiv({ cls: "obsidian-115-qr-status" });
+    status.setText("正在向 115 请求二维码…");
+    try {
+      const qr = new QrLogin({ app: "web" });
+      const session = await qr.start();
+      const img = box.createEl("img", { cls: "obsidian-115-qr-image" });
+      img.setAttribute("src", session.qrcode);
+      img.setAttribute("alt", "115 登录二维码");
+      const link = box.createEl("a", { href: session.scanUrl, text: "在 115 App 中打开此链接" });
+      link.setAttribute("target", "_blank");
+      status.setText("等待扫码…（约 2 分钟内有效）");
+
+      for (let i = 0; i < 60; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const st = await qr.status(session);
+        if (st.status === "scanned") {
+          status.setText("已扫码，请在手机上确认登录…");
+        } else if (st.status === "signed_in") {
+          const cookie = await qr.finish(session);
+          this.plugin.auth.setCookie(cookie);
+          await this.plugin.saveSettings();
+          status.setText("✅ 登录成功，Cookie 已保存");
+          const health = await this.plugin.auth.healthCheck();
+          new Notice(
+            health.fileApiOk
+              ? `✅ 115 登录成功（${health.userName ?? "?"}）`
+              : `⚠ 已获取 Cookie，但文件接口仍不通：${health.reason ?? "未知原因"}`,
+          );
+          return;
+        } else if (st.status === "expired" || st.status === "canceled") {
+          status.setText("二维码已失效或被取消，请重新生成");
+          return;
+        }
+      }
+      status.setText("等待超时，请重新生成二维码");
+    } catch (err) {
+      status.setText(`扫码失败：${(err as Error).message}`);
+      new Notice(`扫码失败：${(err as Error).message}`);
+    }
+  }
+
   display(): void {
     const { containerEl } = this;
     containerEl.empty();
@@ -72,6 +120,16 @@ export class Obsidian115SettingTab extends PluginSettingTab {
         btn.setButtonText("检查").onClick(async () => {
           const state = await this.plugin.auth.healthCheck();
           new Notice(state.fileApiOk ? `✅ 会话正常（${state.userName ?? "?"}）` : `❌ ${state.reason ?? "会话异常"}`);
+        }),
+      );
+
+    const qrBox = containerEl.createDiv({ cls: "obsidian-115-qr" });
+    new Setting(containerEl)
+      .setName("扫码登录")
+      .setDesc("用 115 手机 App 扫一扫即可，插件会自动抓取并保存 Cookie（通道固定为 web，115 App 可直接扫）。")
+      .addButton((btn) =>
+        btn.setButtonText("生成二维码").onClick(async () => {
+          await this.runQrLogin(qrBox);
         }),
       );
 

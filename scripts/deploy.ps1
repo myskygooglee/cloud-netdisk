@@ -15,7 +15,7 @@ try {
 
 Write-Host "[2/3] 复制到 vault…" -ForegroundColor Cyan
 New-Item -ItemType Directory -Force -Path $Dest | Out-Null
-foreach ($f in @("manifest.json", "versions.json")) {
+foreach ($f in @("manifest.json", "versions.json", "styles.css")) {
     Copy-Item (Join-Path $Repo $f) (Join-Path $Dest $f) -Force
 }
 Copy-Item (Join-Path $Repo "dist\main.js") (Join-Path $Dest "main.js") -Force

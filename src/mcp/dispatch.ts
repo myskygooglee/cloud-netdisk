@@ -88,7 +88,7 @@ export class ToolDispatcher {
             }
             return {
               sessionOk: health.hasCookie && health.fileApiOk,
-              riskOk: true, // violation_info / checking_info 由账号接口补充，TODO(M2)
+              riskOk: !health.hasRisk,
               storageOk,
               planFresh: true, // TODO(M3)：接入 state\*.jsonl 的 48h 时效检查
               details: health.reason,
