@@ -2,7 +2,7 @@
 
 在 Obsidian 里浏览和管理你的 115 网盘，并把一组**带安全策略**的 115 工具通过本地 MCP 端点暴露给你的 Agent（Copilot / OpenCode / Claude 等）。
 
-> 插件 ID：`cloud-115` | 版本：0.1.0 | 仅桌面端（需要 Node.js / 本地 HTTP 监听）
+> 插件 ID：`cloud-netdisk` | 版本：0.1.0 | 仅桌面端（需要 Node.js / 本地 HTTP 监听）
 
 ---
 
@@ -31,7 +31,7 @@
 ### 手动安装
 
 1. 从本仓库的 Releases 下载 `main.js`、`manifest.json`、`styles.css`；
-2. 放入 `<库>/.obsidian/plugins/cloud-115/`；
+2. 放入 `<库>/.obsidian/plugins/cloud-netdisk/`；
 3. 重启 Obsidian，在设置 → 第三方插件中启用。
 
 ---
@@ -53,7 +53,7 @@
 ```json
 {
   "mcpServers": {
-    "cloud-115": {
+    "cloud-netdisk": {
       "url": "http://127.0.0.1:7300/mcp",
       "headers": { "x-115-token": "<插件设置里的令牌>" }
     }

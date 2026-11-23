@@ -157,7 +157,7 @@ export async function handleRpc(req: JsonRpcRequest, dispatcher: ToolDispatcher)
         result: {
           protocolVersion: PROTOCOL_VERSION,
           capabilities: { tools: { listChanged: false } },
-          serverInfo: { name: "cloud-115", version: "0.1.0" },
+          serverInfo: { name: "cloud-netdisk", version: "0.1.0" },
         },
       };
     case "notifications/initialized":

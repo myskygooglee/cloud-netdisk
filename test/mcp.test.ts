@@ -16,7 +16,7 @@ describe("MCP JSON-RPC", () => {
   it("initialize 返回协议版本与 serverInfo", async () => {
     const res = (await handleRpc({ jsonrpc: "2.0", id: 1, method: "initialize" }, fakeDispatcher)) as any;
     expect(res.result.protocolVersion).toBeTruthy();
-    expect(res.result.serverInfo.name).toBe("cloud-115");
+    expect(res.result.serverInfo.name).toBe("cloud-netdisk");
     expect(res.result.capabilities.tools).toBeTruthy();
   });
 

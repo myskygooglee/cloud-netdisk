@@ -135,7 +135,7 @@ export default class Cloud115Plugin extends Plugin {
         dispatcher: this.dispatcher,
         port: this.settings.mcpPort,
         token: this.settings.mcpToken,
-        onLog: (msg) => console.debug("[cloud-115]", msg),
+        onLog: (msg) => console.debug("[cloud-netdisk]", msg),
       });
       new Notice(`115 MCP 已启动：${this.mcp.url}`);
     } catch (err) {
@@ -163,7 +163,7 @@ export default class Cloud115Plugin extends Plugin {
     if (!this.mcp) return "";
     const config = {
       mcpServers: {
-        "cloud-115": {
+        "cloud-netdisk": {
           url: this.mcp.url,
           headers: {
             "x-115-token": this.settings.mcpToken,

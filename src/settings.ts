@@ -63,12 +63,12 @@ export class Cloud115SettingTab extends PluginSettingTab {
    */
   private async runQrLogin(box: HTMLElement): Promise<void> {
     box.empty();
-    const status = box.createDiv({ cls: "cloud-115-qr-status" });
+    const status = box.createDiv({ cls: "cloud-netdisk-qr-status" });
     status.setText("正在向 115 请求二维码…");
     try {
       const qr = new QrLogin({ app: "web" });
       const session = await qr.start();
-      const img = box.createEl("img", { cls: "cloud-115-qr-image" });
+      const img = box.createEl("img", { cls: "cloud-netdisk-qr-image" });
       img.setAttribute("src", session.qrcode);
       img.setAttribute("alt", "115 登录二维码");
       const link = box.createEl("a", { href: session.scanUrl, text: "在 115 App 中打开此链接" });
@@ -134,7 +134,7 @@ export class Cloud115SettingTab extends PluginSettingTab {
         }),
       );
 
-    const qrBox = containerEl.createDiv({ cls: "cloud-115-qr" });
+    const qrBox = containerEl.createDiv({ cls: "cloud-netdisk-qr" });
     new Setting(containerEl)
       .setName("扫码登录")
       .setDesc("用 115 手机 App 扫一扫即可，插件会自动抓取并保存 Cookie（通道固定为 web，115 App 可直接扫）。")
@@ -203,9 +203,9 @@ export class Cloud115SettingTab extends PluginSettingTab {
       );
 
     // ------------------------------------------------ 使用指引（引导文案）
-    const guideBox = containerEl.createDiv({ cls: "cloud-115-guide" });
-    guideBox.createEl("h4", { cls: "cloud-115-guide-title", text: "使用指引" });
-    const guideText = guideBox.createDiv({ cls: "cloud-115-guide-text" });
+    const guideBox = containerEl.createDiv({ cls: "cloud-netdisk-guide" });
+    guideBox.createEl("h4", { cls: "cloud-netdisk-guide-title", text: "使用指引" });
+    const guideText = guideBox.createDiv({ cls: "cloud-netdisk-guide-text" });
     guideText.setText(this.plugin.settings.enableWriteTools ? WRITE_MODE_BANNER : READ_ONLY_BANNER);
     new Setting(containerEl)
       .setName("复制 agent 使用指引")

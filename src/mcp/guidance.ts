@@ -29,7 +29,7 @@ export const WRITE_MODE_BANNER = [
 
 /** 给 agent 的用法说明（复制到 Copilot 对话里即可）。 */
 export const AGENT_GUIDE = [
-  "# 115 agent 使用指引（cloud-115）",
+  "# 115 agent 使用指引（cloud-netdisk）",
   "",
   "你可以通过以下本地 MCP 工具操作用户的 115 网盘：",
   "",

@@ -1,13 +1,13 @@
 /* ---------- 侧边栏视图（M6） ---------- */
 
-.cloud-115-view {
+.cloud-netdisk-view {
   font-size: var(--font-ui-small);
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 
-.cloud-115-locked {
+.cloud-netdisk-locked {
   padding: 10px 12px;
   border: 1px solid var(--background-modifier-error);
   border-radius: 8px;
@@ -17,21 +17,21 @@
   line-height: 1.5;
 }
 
-.cloud-115-locked b {
+.cloud-netdisk-locked b {
   color: var(--text-error);
 }
 
-.cloud-115-header h4 {
+.cloud-netdisk-header h4 {
   margin: 0 0 6px;
 }
 
-.cloud-115-actions {
+.cloud-netdisk-actions {
   display: flex;
   gap: 4px;
   margin-bottom: 6px;
 }
 
-.cloud-115-icon-button {
+.cloud-netdisk-icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -45,39 +45,39 @@
   color: var(--text-muted);
 }
 
-.cloud-115-icon-button:hover {
+.cloud-netdisk-icon-button:hover {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
-.cloud-115-search input {
+.cloud-netdisk-search input {
   width: 100%;
   margin-bottom: 6px;
 }
 
-.cloud-115-crumbs {
+.cloud-netdisk-crumbs {
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
   margin-bottom: 4px;
   word-break: break-all;
 }
 
-.cloud-115-crumb {
+.cloud-netdisk-crumb {
   cursor: pointer;
   color: var(--text-accent);
 }
 
-.cloud-115-crumb:hover {
+.cloud-netdisk-crumb:hover {
   text-decoration: underline;
 }
 
-.cloud-115-quota {
+.cloud-netdisk-quota {
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
   margin-bottom: 8px;
 }
 
-.cloud-115-bar {
+.cloud-netdisk-bar {
   height: 4px;
   margin-top: 3px;
   background: var(--background-modifier-border);
@@ -85,18 +85,18 @@
   overflow: hidden;
 }
 
-.cloud-115-bar-fill {
+.cloud-netdisk-bar-fill {
   height: 100%;
   background: var(--interactive-accent);
 }
 
-.cloud-115-body {
+.cloud-netdisk-body {
   overflow-y: auto;
   flex: 1;
   min-height: 0;
 }
 
-.cloud-115-row {
+.cloud-netdisk-row {
   display: flex;
   align-items: baseline;
   gap: 4px;
@@ -107,11 +107,11 @@
   overflow: hidden;
 }
 
-.cloud-115-row:hover {
+.cloud-netdisk-row:hover {
   background: var(--background-modifier-hover);
 }
 
-.cloud-115-twisty {
+.cloud-netdisk-twisty {
   width: 12px;
   flex: 0 0 12px;
   color: var(--text-faint);
@@ -119,24 +119,24 @@
   user-select: none;
 }
 
-.cloud-115-ico {
+.cloud-netdisk-ico {
   flex: 0 0 auto;
 }
 
-.cloud-115-name {
+.cloud-netdisk-name {
   flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.cloud-115-meta {
+.cloud-netdisk-meta {
   flex: 0 0 auto;
   color: var(--text-faint);
   font-size: var(--font-ui-smaller);
   padding-left: 6px;
 }
 
-.cloud-115-enter {
+.cloud-netdisk-enter {
   flex: 0 0 auto;
   padding: 0 4px;
   height: 18px;
@@ -148,11 +148,11 @@
   cursor: pointer;
 }
 
-.cloud-115-enter:hover {
+.cloud-netdisk-enter:hover {
   color: var(--text-normal);
 }
 
-.cloud-115-detail {
+.cloud-netdisk-detail {
   margin: 4px 0 8px 20px;
   padding: 6px 8px;
   border-left: 2px solid var(--interactive-accent);
@@ -160,17 +160,17 @@
   border-radius: 4px;
 }
 
-.cloud-115-detail pre {
+.cloud-netdisk-detail pre {
   margin: 0 0 6px;
   white-space: pre-wrap;
   word-break: break-all;
   font-size: var(--font-ui-smaller);
 }
 
-.cloud-115-tip,
-.cloud-115-more,
-.cloud-115-empty,
-.cloud-115-loading {
+.cloud-netdisk-tip,
+.cloud-netdisk-more,
+.cloud-netdisk-empty,
+.cloud-netdisk-loading {
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
   padding: 2px 0;
@@ -178,27 +178,27 @@
 
 /* ---------- 设置页 ---------- */
 
-.cloud-115-health.is-ok {
+.cloud-netdisk-health.is-ok {
   color: var(--text-success, #2e7d32);
 }
 
-.cloud-115-health.is-bad {
+.cloud-netdisk-health.is-bad {
   color: var(--text-error, #c62828);
 }
 
-.cloud-115-list {
+.cloud-netdisk-list {
   margin-top: 8px;
   font-size: var(--font-ui-small);
 }
 
-.cloud-115-qr {
+.cloud-netdisk-qr {
   margin: 8px 0 12px;
   padding: 8px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
 }
 
-.cloud-115-qr-image {
+.cloud-netdisk-qr-image {
   display: block;
   width: 220px;
   height: 220px;
@@ -207,13 +207,13 @@
   background: #fff;
 }
 
-.cloud-115-qr-status {
+.cloud-netdisk-qr-status {
   font-size: var(--font-ui-small);
   color: var(--text-muted);
   text-align: center;
 }
 
-.cloud-115-guide {
+.cloud-netdisk-guide {
   margin: 12px 0;
   padding: 10px 12px;
   border: 1px solid var(--background-modifier-border);
@@ -221,11 +221,11 @@
   background: var(--background-secondary);
 }
 
-.cloud-115-guide-title {
+.cloud-netdisk-guide-title {
   margin: 0 0 6px;
 }
 
-.cloud-115-guide-text {
+.cloud-netdisk-guide-text {
   font-size: var(--font-ui-small);
   white-space: pre-wrap;
   line-height: 1.5;
