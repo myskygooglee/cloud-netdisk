@@ -14,7 +14,7 @@ interface FakeCall {
   args: any[];
 }
 
-function makeDispatcher(opts: { writeEnabled: boolean; maxWrites?: number }) {
+function makeDispatcher(opts: { writeEnabled: boolean; maxWrites?: number; locked?: boolean }) {
   const calls: FakeCall[] = [];
   const audits: any[] = [];
   let clock = 0;
@@ -41,6 +41,10 @@ function makeDispatcher(opts: { writeEnabled: boolean; maxWrites?: number }) {
     audit: { write: (rec: any) => audits.push(rec) } as any,
     ensureQuarantineDir: async () => "QUAR_CID",
     isWriteEnabled: () => opts.writeEnabled,
+    crossLock: () =>
+      opts.locked
+        ? { locked: true, detail: "批处理正在运行：quarantine_115.py (pid 1234)" }
+        : { locked: false, detail: "无批处理在跑" },
   });
   return { dispatcher, calls, audits, policy };
 }
@@ -104,6 +108,37 @@ describe("M5 · 放开后的写链路", () => {
     expect(badRes.isError).toBe(true);
     expect(badRes.content[0].text).toContain("quarantine");
     expect(calls).toHaveLength(1);
+  });
+});
+
+describe("M8 · 跨进程锁（批处理在跑时插件全停）", () => {
+  it("批处理持锁 ⇒ 只读工具也被拒绝，且零请求发出", async () => {
+    const { dispatcher, calls } = makeDispatcher({ writeEnabled: false, locked: true });
+    const res = await dispatcher.call("list_dir", { cid: "0" });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain("批处理正在运行");
+    expect(calls).toHaveLength(0);
+  });
+
+  it("批处理持锁 ⇒ 写工具即使已放开也被拒绝", async () => {
+    const { dispatcher, calls } = makeDispatcher({ writeEnabled: true, locked: true });
+    const res = await dispatcher.call("mkdir", { pid: "0", name: "x" });
+    expect(res.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+
+  it("批处理持锁的拒绝会落审计（detail 前缀 cross_process_lock）", async () => {
+    const { dispatcher, audits } = makeDispatcher({ writeEnabled: false, locked: true });
+    await dispatcher.call("quota", {});
+    const hit = audits.find((a) => String(a.detail).startsWith("cross_process_lock"));
+    expect(hit).toBeTruthy();
+    expect(hit.result).toBe("failed");
+  });
+
+  it("无锁时只读工具正常放行", async () => {
+    const { dispatcher } = makeDispatcher({ writeEnabled: false, locked: false });
+    const res = await dispatcher.call("quota", {});
+    expect(res.isError).toBeUndefined();
   });
 });
 

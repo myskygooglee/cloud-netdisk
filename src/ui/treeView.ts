@@ -57,6 +57,17 @@ export class TreeView extends ItemView {
     root.empty();
     root.addClass("obsidian-115-view");
 
+    // 跨进程锁：批处理在跑时侧栏也不打 115（AGENTS：禁止并发）
+    const lock = this.plugin.crossLock.status();
+    if (lock.locked) {
+      const warn = root.createDiv({ cls: "obsidian-115-locked" });
+      warn.createEl("b", { text: "⛔ 115 批处理正在运行" });
+      warn.createDiv({ text: lock.detail });
+      warn.createDiv({ text: "为避免并发撞风控，插件暂停所有 115 请求。批处理结束后点刷新。" });
+      this.iconButton(warn, "refresh-cw", "刷新", () => void this.render());
+      return;
+    }
+
     this.renderHeader(root);
     this.renderBreadcrumb(root);
     this.renderQuota(root);

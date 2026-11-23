@@ -4,6 +4,7 @@ import { AuthManager } from "./115/auth";
 import { AuditLog } from "./policy/audit";
 import { PolicyEngine } from "./policy/engine";
 import { checkPlanFreshness } from "./policy/planFresh";
+import { CrossProcessLock } from "./policy/crossLock";
 import { ToolDispatcher } from "./mcp/dispatch";
 import { McpServerInfo, startMcpServer } from "./mcp/server";
 import { DEFAULT_SETTINGS, Obsidian115Settings, Obsidian115SettingTab } from "./settings";
@@ -36,6 +37,7 @@ export default class Obsidian115Plugin extends Plugin {
   policy!: PolicyEngine;
   audit!: AuditLog;
   dispatcher!: ToolDispatcher;
+  crossLock!: CrossProcessLock;
   private mcp: McpServerInfo | null = null;
 
   async onload(): Promise<void> {
@@ -62,6 +64,11 @@ export default class Obsidian115Plugin extends Plugin {
     // 审计日志写在插件自己的数据目录（vault 内但属插件目录，不污染笔记）
     this.audit = new AuditLog(`${this.manifest.dir}/data`);
 
+    // 跨进程 115 锁：与 D:\115-MCP-Server\scripts\_shared_115_lock.py 共用同一对文件
+    this.crossLock = new CrossProcessLock({
+      dir: this.settings.crossLockDir || undefined,
+    });
+
     this.dispatcher = new ToolDispatcher({
       auth: this.auth,
       policy: this.policy,
@@ -70,6 +77,10 @@ export default class Obsidian115Plugin extends Plugin {
       isWriteEnabled: () => this.settings.enableWriteTools,
       planFresh: () =>
         checkPlanFreshness(this.settings.stateDir, this.settings.planMaxAgeHours),
+      crossLock: () => {
+        const st = this.crossLock.guard();
+        return { locked: st.locked, detail: st.detail };
+      },
     });
 
     this.registerView(VIEW_TYPE_115, (leaf) => new TreeView(leaf, this));

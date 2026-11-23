@@ -1,6 +1,7 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import { QrLogin } from "./115/qrcode";
 import { READ_ONLY_BANNER, WRITE_MODE_BANNER } from "./mcp/guidance";
+import { CrossProcessLock } from "./policy/crossLock";
 import type Obsidian115Plugin from "./main";
 
 export interface Obsidian115Settings {
@@ -30,6 +31,8 @@ export interface Obsidian115Settings {
   stateDir: string;
   /** 清单时效阈值（小时），AGENTS：48 */
   planMaxAgeHours: number;
+  /** 跨进程 115 锁目录（与 Python 侧 state 目录相同） */
+  crossLockDir: string;
 }
 
 export const DEFAULT_SETTINGS: Obsidian115Settings = {
@@ -46,6 +49,7 @@ export const DEFAULT_SETTINGS: Obsidian115Settings = {
   enableWriteTools: false,
   stateDir: "D:\\115-MCP-Server\\state\\inventory_full_20261123",
   planMaxAgeHours: 48,
+  crossLockDir: "D:\\115-MCP-Server\\state",
 };
 
 export class Obsidian115SettingTab extends PluginSettingTab {
@@ -284,6 +288,39 @@ export class Obsidian115SettingTab extends PluginSettingTab {
             this.plugin.policy.reset();
             new Notice("已重置熔断与写计数；请先确认会话已恢复再继续。");
             this.display();
+          }),
+      );
+
+    new Setting(containerEl).setName("跨进程互斥（与 Python 批处理）").setHeading();
+
+    const lockStatus = this.plugin.crossLock.status();
+    new Setting(containerEl)
+      .setName("115 全局锁状态")
+      .setDesc(
+        lockStatus.locked
+          ? `⛔ ${lockStatus.detail}　—　插件此时会拒绝所有 115 请求（AGENTS：禁止并发）`
+          : `✅ ${lockStatus.detail}`,
+      )
+      .addButton((btn) =>
+        btn.setButtonText("刷新").onClick(() => this.display()),
+      );
+
+    new Setting(containerEl)
+      .setName("锁目录")
+      .setDesc(
+        "必须与 115-MCP-Server 的 state 目录一致（默认 D:\\115-MCP-Server\\state）。" +
+          "两边共用 115.lock.json（批处理独占锁）与 115.plugin_activity.json（插件活动标记）。",
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("D:\\115-MCP-Server\\state")
+          .setValue(this.plugin.settings.crossLockDir)
+          .onChange(async (v) => {
+            this.plugin.settings.crossLockDir = v.trim();
+            await this.plugin.saveSettings();
+            this.plugin.crossLock = new CrossProcessLock({
+              dir: this.plugin.settings.crossLockDir || undefined,
+            });
           }),
       );
   }

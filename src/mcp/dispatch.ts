@@ -23,6 +23,8 @@ export interface DispatchDeps {
   isWriteEnabled: () => boolean;
   /** 计划清单 48h 时效检查（AGENTS 第四节） */
   planFresh?: () => { fresh: boolean; detail: string };
+  /** 跨进程 115 锁守卫：返回 locked=true 时拒绝本次请求 */
+  crossLock?: () => { locked: boolean; detail: string };
 }
 
 export interface ToolResult {
@@ -57,6 +59,16 @@ export class ToolDispatcher {
       return fail(
         `工具 ${name} 属于写操作，当前插件处于「只读模式」。请在 Obsidian 设置 → 115 Cloud → 放开写工具 后重试。`,
       );
+    }
+
+    // 跨进程闸门：Python 批处理持锁期间，插件连只读都不放行（AGENTS：禁止并发）
+    if (this.deps.crossLock) {
+      const st = this.deps.crossLock();
+      if (st.locked) {
+        const text = `⛔ 115 批处理正在运行，插件暂停所有 115 请求以避免并发撞风控。\n${st.detail}\n等批处理结束后重试（锁心跳 90s 未刷新会自动视为陈旧）。`;
+        this.deps.audit.write({ action: `tool:${name}`, result: "failed", detail: `cross_process_lock: ${st.detail}` });
+        return fail(text);
+      }
     }
 
     try {
