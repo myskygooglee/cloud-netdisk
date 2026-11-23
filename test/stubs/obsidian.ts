@@ -20,3 +20,6 @@ export class Modal {}
 export class Component {}
 export class TFile {}
 export class TFolder {}
+export function setIcon(_el: HTMLElement, _name: string): void {
+  /* noop in tests */
+}

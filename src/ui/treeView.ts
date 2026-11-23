@@ -1,13 +1,32 @@
 /**
- * 侧边栏：115 目录树（M6 完整版；当前提供最小可用列表）。
+ * 侧边栏：115 目录树 + 搜索 + 容量条 + 面包屑（M6）。
+ *
+ * 设计约束：
+ *  - 所有 115 请求都走 `plugin.policy.read()`，与 agent 共用同一条串行限速队列，
+ *    不会因为「人在点侧栏、agent 同时在跑」而并发撞风控。
+ *  - 目录懒加载：展开才拉子目录，避免一次把几万目录全打出去。
+ *  - 本轮只做**只读**交互：浏览 / 搜索 / 查看元数据。写操作留给 agent 与后续版本。
  */
 
-import { ItemView, WorkspaceLeaf } from "obsidian";
+import { ItemView, Notice, setIcon, WorkspaceLeaf } from "obsidian";
+import { formatBytes, P115Entry } from "../115/types";
 import type Obsidian115Plugin from "../main";
 
 export const VIEW_TYPE_115 = "obsidian-115-tree";
 
+interface Crumb {
+  cid: string;
+  name: string;
+}
+
 export class TreeView extends ItemView {
+  /** 已展开的目录 cid → 子条目容器 */
+  private expanded = new Set<string>();
+  private crumbs: Crumb[] = [{ cid: "0", name: "根目录" }];
+  private query = "";
+  private searchResults: P115Entry[] | null = null;
+  private quotaText = "";
+
   constructor(leaf: WorkspaceLeaf, private readonly plugin: Obsidian115Plugin) {
     super(leaf);
   }
@@ -32,33 +51,244 @@ export class TreeView extends ItemView {
     /* nothing */
   }
 
+  /** 完整重绘（切换目录 / 搜索 / 刷新时调用）。 */
   async render(): Promise<void> {
-    const el = this.contentEl;
-    el.empty();
-    el.createEl("h4", { text: "115 网盘" });
+    const root = this.contentEl;
+    root.empty();
+    root.addClass("obsidian-115-view");
 
-    const health = el.createDiv({ cls: "obsidian-115-health" });
-    health.setText("检查会话中…");
+    this.renderHeader(root);
+    this.renderBreadcrumb(root);
+    this.renderQuota(root);
 
-    try {
-      const state = await this.plugin.auth.healthCheck();
-      health.setText(state.fileApiOk ? `✅ ${state.userName ?? "已登录"}` : `❌ ${state.reason ?? "未登录"}`);
-      health.toggleClass("is-ok", state.fileApiOk);
-      health.toggleClass("is-bad", !state.fileApiOk);
-    } catch (err) {
-      health.setText(`❌ ${(err as Error).message}`);
+    const body = root.createDiv({ cls: "obsidian-115-body" });
+    if (this.query) {
+      await this.renderSearch(body);
+    } else {
+      await this.renderLevel(body, this.currentCid(), 0);
     }
+  }
 
-    const list = el.createDiv({ cls: "obsidian-115-list" });
+  private currentCid(): string {
+    return this.crumbs[this.crumbs.length - 1]?.cid ?? "0";
+  }
+
+  private renderHeader(root: HTMLElement): void {
+    const head = root.createDiv({ cls: "obsidian-115-header" });
+    head.createEl("h4", { text: "115 网盘" });
+
+    const actions = head.createDiv({ cls: "obsidian-115-actions" });
+    this.iconButton(actions, "refresh-cw", "刷新", () => void this.render());
+    this.iconButton(actions, "chevron-up", "上一级", () => {
+      if (this.crumbs.length <= 1) return;
+      this.crumbs.pop();
+      this.query = "";
+      this.searchResults = null;
+      void this.render();
+    });
+    this.iconButton(actions, "home", "根目录", () => {
+      this.crumbs = [{ cid: "0", name: "根目录" }];
+      this.query = "";
+      this.searchResults = null;
+      void this.render();
+    });
+
+    const searchRow = head.createDiv({ cls: "obsidian-115-search" });
+    const input = searchRow.createEl("input", {
+      type: "search",
+      placeholder: "搜索名称（回车）",
+      value: this.query,
+    });
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key !== "Enter") return;
+      const q = input.value.trim();
+      this.query = q;
+      this.searchResults = null;
+      void this.render();
+    });
+  }
+
+  private iconButton(parent: HTMLElement, icon: string, title: string, onClick: () => void): HTMLElement {
+    const btn = parent.createEl("button", { cls: "obsidian-115-icon-button" });
+    btn.setAttribute("aria-label", title);
+    btn.setAttribute("title", title);
+    setIcon(btn, icon);
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      onClick();
+    });
+    return btn;
+  }
+
+  private renderBreadcrumb(root: HTMLElement): void {
+    const bar = root.createDiv({ cls: "obsidian-115-crumbs" });
+    this.crumbs.forEach((c, idx) => {
+      if (idx > 0) bar.createSpan({ text: " / ", cls: "obsidian-115-sep" });
+      const a = bar.createEl("a", { text: c.name, cls: "obsidian-115-crumb" });
+      a.addEventListener("click", () => {
+        this.crumbs = this.crumbs.slice(0, idx + 1);
+        this.query = "";
+        this.searchResults = null;
+        void this.render();
+      });
+    });
+  }
+
+  private renderQuota(root: HTMLElement): void {
+    const box = root.createDiv({ cls: "obsidian-115-quota" });
+    if (!this.quotaText) {
+      box.setText("容量读取中…");
+      void this.loadQuota(box);
+      return;
+    }
+    box.setText(this.quotaText);
+  }
+
+  private async loadQuota(box: HTMLElement): Promise<void> {
     try {
-      const client = this.plugin.auth.getClient();
-      const res = await this.plugin.policy.read(() => client.listDir(client.rootCid));
-      for (const entry of res.entries) {
-        const row = list.createDiv({ cls: "obsidian-115-row" });
-        row.createSpan({ text: `${entry.isDir ? "📁" : "📄"} ${entry.name}` });
+      const q = await this.plugin.policy.read(() => this.plugin.auth.getClient().quota());
+      const pct = q.total > 0 ? (q.used / q.total) * 100 : 0;
+      this.quotaText = `已用 ${formatBytes(q.used)} / ${formatBytes(q.total)}（${pct.toFixed(1)}%）`;
+      box.empty();
+      box.setText(this.quotaText);
+      const bar = box.createDiv({ cls: "obsidian-115-bar" });
+      const fill = bar.createDiv({ cls: "obsidian-115-bar-fill" });
+      fill.setAttribute("style", `width:${Math.min(100, pct).toFixed(2)}%`);
+    } catch (err) {
+      box.setText(`容量读取失败：${(err as Error).message}`);
+    }
+  }
+
+  private async renderSearch(body: HTMLElement): Promise<void> {
+    const tip = body.createDiv({ cls: "obsidian-115-tip" });
+    tip.setText(`搜索「${this.query}」`);
+    if (!this.searchResults) {
+      tip.setText(`搜索「${this.query}」中…`);
+      try {
+        this.searchResults = await this.plugin.policy.read(() =>
+          this.plugin.auth.getClient().search(this.query, 0, 100),
+        );
+      } catch (err) {
+        body.createDiv({ text: `搜索失败：${(err as Error).message}` });
+        return;
+      }
+      tip.setText(`搜索「${this.query}」：${this.searchResults.length} 条`);
+    }
+    if (!this.searchResults.length) {
+      body.createDiv({ cls: "obsidian-115-empty", text: "没有匹配的条目" });
+      return;
+    }
+    for (const entry of this.searchResults) this.renderRow(body, entry, 0, false);
+  }
+
+  /** 渲染某一层的条目；`depth` 用于缩进。 */
+  private async renderLevel(parent: HTMLElement, cid: string, depth: number): Promise<void> {
+    const holder = parent.createDiv({ cls: "obsidian-115-level" });
+    holder.setAttribute("data-cid", cid);
+    const loading = holder.createDiv({ cls: "obsidian-115-loading", text: "加载中…" });
+    let entries: P115Entry[];
+    try {
+      const res = await this.plugin.policy.read(() => this.plugin.auth.getClient().listDir(cid, 0, 500));
+      entries = res.entries;
+      loading.remove();
+      if (res.total && res.total > entries.length) {
+        holder.createDiv({
+          cls: "obsidian-115-more",
+          text: `该目录共 ${res.total} 项，仅显示前 ${entries.length} 项`,
+        });
       }
     } catch (err) {
-      list.createDiv({ text: `读取失败：${(err as Error).message}` });
+      loading.setText(`读取失败：${(err as Error).message}`);
+      return;
+    }
+    if (!entries.length) {
+      holder.createDiv({ cls: "obsidian-115-empty", text: "（空目录）" });
+      return;
+    }
+    for (const entry of entries) {
+      await this.renderRow(holder, entry, depth, true);
+    }
+  }
+
+  private async renderRow(parent: HTMLElement, entry: P115Entry, depth: number, _allowExpand: boolean): Promise<void> {
+    const row = parent.createDiv({ cls: "obsidian-115-row" });
+    row.setAttribute("style", `padding-left:${depth * 14}px`);
+
+    const twisty = row.createSpan({ cls: "obsidian-115-twisty" });
+    const isExpanded = this.expanded.has(entry.id);
+    twisty.setText(entry.isDir ? (isExpanded ? "▾" : "▸") : " ");
+    const icon = row.createSpan({ cls: "obsidian-115-ico", text: entry.isDir ? "📁" : "📄" });
+    const label = row.createSpan({ cls: "obsidian-115-name", text: entry.name });
+    const meta = row.createSpan({
+      cls: "obsidian-115-meta",
+      text: entry.isDir ? "" : formatBytes(entry.size),
+    });
+    if (entry.isDir) icon.setAttribute("title", `cid=${entry.id}`);
+
+    // 文件：点击就地显示元数据（只读）
+    if (!entry.isDir) {
+      label.addEventListener("click", () => void this.showDetail(parent, entry));
+      return;
+    }
+
+    // 目录：右侧「进入」按钮下钻；点行其它位置 = 展开/收起
+    const enterBtn = row.createEl("button", { cls: "obsidian-115-enter", text: "↗" });
+    enterBtn.setAttribute("title", "进入此目录");
+    enterBtn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      this.crumbs.push({ cid: entry.id, name: entry.name });
+      this.query = "";
+      this.searchResults = null;
+      void this.render();
+    });
+
+    const children = parent.createDiv({ cls: "obsidian-115-children" });
+    if (isExpanded) await this.renderLevel(children, entry.id, depth + 1);
+
+    row.addEventListener("click", async () => {
+      if (this.expanded.has(entry.id)) {
+        this.expanded.delete(entry.id);
+        children.empty();
+        twisty.setText("▸");
+        return;
+      }
+      this.expanded.add(entry.id);
+      twisty.setText("▾");
+      await this.renderLevel(children, entry.id, depth + 1);
+    });
+  }
+
+  private async showDetail(parent: HTMLElement, entry: P115Entry): Promise<void> {
+    const old = parent.querySelector(".obsidian-115-detail");
+    old?.remove();
+    const box = parent.createDiv({ cls: "obsidian-115-detail" });
+    box.setText(`${entry.name} · 读取元数据…`);
+    try {
+      const full = await this.plugin.policy.read(() => this.plugin.auth.getClient().stat(entry.fid ?? entry.id));
+      box.empty();
+      const lines = [
+        `名称：${full?.name ?? entry.name}`,
+        `fid：${full?.fid ?? entry.fid ?? "?"}`,
+        `所属目录 cid：${full?.pid ?? "?"}`,
+        `大小：${formatBytes(full?.size ?? entry.size)}`,
+        `sha1：${full?.sha1 ?? "（未返回）"}`,
+        `类型：${full?.ico ?? entry.ico ?? "?"}`,
+        `修改时间：${full?.mtime ? new Date(full.mtime * 1000).toLocaleString() : "未知"}`,
+      ];
+      box.createEl("pre", { text: lines.join("\n") });
+      const copy = box.createEl("button", { text: "复制 fid" });
+      copy.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const fid = full?.fid ?? entry.fid ?? "";
+        try {
+          await navigator.clipboard.writeText(fid);
+          new Notice(`已复制 fid：${fid}`);
+        } catch {
+          new Notice("复制失败");
+        }
+      });
+    } catch (err) {
+      box.setText(`元数据读取失败：${(err as Error).message}`);
     }
   }
 }

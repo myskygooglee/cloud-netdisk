@@ -44,6 +44,41 @@ export const httpTransport: Transport = async (opts) => {
 
 const WEB = "https://webapi.115.com";
 
+/**
+ * 把 115 的原始条目（`n` / `s` / `sha` / `fc` / `te` 这套短字段名）映射成 P115Entry。
+ *
+ * 关键点（2026-11-23 实测）：
+ *  - **目录只有 cid，文件同时有 cid 和 fid，且两者不同**。所以 `id` 必须按 fc 区分，
+ *    否则拿 cid 当 fid 去 move/delete 会打错对象。
+ *  - 大小字段是 `s`（字符串），sha1 字段是 `sha`（大写十六进制），mtime 是 `te`（秒）。
+ *  - 搜索接口会把关键词用 <b> 高亮塞进 `n` 里，这里取纯文本 `n`（115 同时给 `n` 已是纯文本）。
+ */
+function mapEntry(it: any): P115Entry {
+  const hasFid = it.fid !== undefined && it.fid !== null && it.fid !== "";
+  const fc = it.fc === undefined ? undefined : Number(it.fc);
+  const isDir = fc === 0 || (!hasFid && it.cid !== undefined);
+  const ownCid = it.cid !== undefined && it.cid !== null ? String(it.cid) : undefined;
+  // 115 的语义（2026-11-23 用真实数据核对）：目录的 cid 是它自己的 id（pid 是父），
+  // 文件的 cid 是**父目录** id（pid 恒为 0）。所以文件的父目录要从 cid 取。
+  const pid = isDir ? String(it.pid ?? "0") : String(it.cid ?? it.pid ?? "0");
+  const id = isDir ? String(ownCid ?? it.fid ?? "") : String(it.fid ?? ownCid ?? "");
+  const epoch = Number(it.te ?? it.tp ?? (typeof it.t === "number" ? it.t : 0));
+  return {
+    id,
+    cid: isDir ? ownCid : undefined,
+    fid: hasFid ? String(it.fid) : undefined,
+    pid,
+    name: String(it.n ?? it.file_name ?? ""),
+    size: Number(it.s ?? it.size ?? it.file_size ?? 0),
+    sha1: (it.sha ?? it.sha1) || undefined,
+    ico: it.ico ?? undefined,
+    isDir,
+    mtime: Number.isFinite(epoch) && epoch > 0 ? epoch : undefined,
+    ctime: Number(it.c ?? it.tp ?? 0) || undefined,
+    pickcode: it.pc ?? it.pickcode,
+  };
+}
+
 function form(fields: Record<string, string | number | undefined>): string {
   const parts: string[] = [];
   for (const [k, v] of Object.entries(fields)) {
@@ -99,6 +134,16 @@ export class P115Client {
 
   /** 统一请求：带 cookie、解析 JSON、把异常归一化成 P115Error。 */
   private async request(path: string, method: "GET" | "POST", fields: Record<string, string | number | undefined> = {}): Promise<any> {
+    const body = await this.requestRaw(path, method, fields);
+    return body.data ?? body;
+  }
+
+  /** 同 request，但返回**未拆壳**的完整响应体（需要 `count` / `path` 这类外层字段时用）。 */
+  private async requestRaw(
+    path: string,
+    method: "GET" | "POST",
+    fields: Record<string, string | number | undefined> = {},
+  ): Promise<any> {
     let res: HttpResponse;
     try {
       res = await this.transport({
@@ -116,7 +161,7 @@ export class P115Client {
       const msg = `${body.error ?? "unknown error"} errno=${body.errno ?? "?"}`;
       throw new P115Error(classifyP115Error(msg), msg, JSON.stringify(body).slice(0, 400));
     }
-    return body.data ?? body;
+    return body;
   }
 
   // ------------------------------------------------------------ 只读
@@ -126,6 +171,7 @@ export class P115Client {
   //   账号    GET  https://webapi.115.com/user/info
   //   容量    GET  https://115.com/index.php?ct=ajax&ac=get_storage_info
   //   搜索    GET  https://webapi.115.com/files/search?aid=1&cid=0&limit=1150&offset=0&show_dir=1&search_value=
+  //   元数据  GET  https://webapi.115.com/files/get_info?file_id=
   //   建目录  POST https://webapi.115.com/files/add            {cname, pid}
   //   重命名  POST https://webapi.115.com/files/batch_rename   {files_new_name[fid]: name}
   //   移动    POST https://webapi.115.com/files/move           {fid, pid}
@@ -142,23 +188,19 @@ export class P115Client {
       record_open_time: "1",
       show_dir: "1",
     });
-    const data = await this.request(`/files?${qs.toString()}`, "GET");
-    const list: any[] = Array.isArray(data) ? data : (data?.list ?? []);
-    const entries: P115Entry[] = list.map((it: any) => ({
-      id: String(it.cid ?? it.fid ?? ""),
-      cid: it.cid !== undefined ? String(it.cid) : undefined,
-      fid: it.fid !== undefined ? String(it.fid) : undefined,
-      pid: String(it.pid ?? "0"),
-      name: it.n ?? "",
-      size: Number(it.s ?? it.file_size ?? 0),
-      sha1: it.sha1 || undefined,
-      ico: it.ico,
-      isDir: it.fc === 0 || it.cid !== undefined,
-      mtime: it.t ? Number(it.t) : undefined,
-      ctime: it.c ? Number(it.c) : undefined,
-      pickcode: it.pc,
-    }));
-    return { entries, hasMore: entries.length >= limit };
+    const body = await this.requestRaw(`/files?${qs.toString()}`, "GET");
+    const list: any[] = Array.isArray(body.data) ? body.data : [];
+    const entries = list.map(mapEntry);
+    const total = Number(body?.count ?? entries.length);
+    return {
+      entries,
+      total,
+      hasMore: offset + entries.length < total,
+      // `/files` 会在 path 里回带从根到当前目录的完整链路，UI 面包屑直接可用
+      path: Array.isArray(body?.path)
+        ? body.path.map((p: any) => ({ cid: String(p.cid ?? "0"), name: String(p.name ?? "") }))
+        : undefined,
+    };
   }
 
   /** 容量信息（115.com 的 get_storage_info，返回按存储类型分组的 total/used）。 */
@@ -187,7 +229,7 @@ export class P115Client {
     };
   }
 
-  /** 按名称搜索（115 web 搜索接口，GET + search_value）。 */
+  /** 按名称搜索（115 web 搜索接口，GET + search_value；`online=false` 时只搜未缓存的？不，保持服务端行为）。 */
   async search(query: string, offset = 0, limit = 1150): Promise<P115Entry[]> {
     const qs = new URLSearchParams({
       aid: "1",
@@ -198,25 +240,37 @@ export class P115Client {
       search_value: query,
     });
     const data = await this.request(`/files/search?${qs.toString()}`, "GET");
-    const list: any[] = Array.isArray(data) ? data : (data?.data?.list ?? data?.list ?? []);
-    return list.map((it: any) => ({
-      id: String(it.cid ?? it.fid ?? ""),
-      cid: it.cid !== undefined ? String(it.cid) : undefined,
-      fid: it.fid !== undefined ? String(it.fid) : undefined,
-      pid: String(it.pid ?? "0"),
-      name: it.n ?? it.file_name ?? "",
-      size: Number(it.s ?? it.size ?? 0),
-      sha1: it.sha1 || undefined,
-      ico: it.ico,
-      isDir: it.fc === 0 || it.cid !== undefined,
-    }));
+    const list: any[] = Array.isArray(data) ? data : (data?.data ?? data?.list ?? []);
+    return list.map(mapEntry);
+  }
+
+  /**
+   * 单个文件 / 目录的元数据：GET /files/get_info?file_id=
+   *
+   * 这是 p115client `fs_file` 的 Web 端点。2026-11-23 实测：
+   *  - 目录传 cid、文件传 fid，都返回 `data: [ {...} ]`；
+   *  - 抢救性提示：文件进回收站后此接口就不返回它了。
+   */
+  async stat(id: string): Promise<P115Entry | null> {
+    const data = await this.request(`/files/get_info?file_id=${encodeURIComponent(id)}`, "GET");
+    const list: any[] = Array.isArray(data) ? data : (data?.data ?? []);
+    const first = list[0];
+    return first ? mapEntry(first) : null;
   }
 
   // ------------------------------------------------------------ 写操作（调用方必须先过 Policy）
 
-  /** 建目录：POST /files/add {cname, pid} */
-  async mkdir(pid: string, name: string): Promise<void> {
-    await this.request("/files/add", "POST", { cname: name, pid: String(pid) });
+  /**
+   * 建目录：POST /files/add {cname, pid}
+   *
+   * 实测响应形如 `{state:true, cid:"<新目录 cid>", cname:"..."}`；
+   * 拿不到 cid 时返回 null，调用方需自行回查（隔离目录就是这么做的）。
+   */
+  async mkdir(pid: string, name: string): Promise<{ cid: string } | null> {
+    const body = await this.requestRaw("/files/add", "POST", { cname: name, pid: String(pid) });
+    const data = body.data ?? body;
+    const cid = data?.cid ?? data?.file_id;
+    return cid ? { cid: String(cid) } : null;
   }
 
   /** 重命名：POST /files/batch_rename {files_new_name[fid]: 新名}（必须带扩展名） */

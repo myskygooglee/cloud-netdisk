@@ -100,6 +100,63 @@ describe("端点契约", () => {
     expect(calls[0].url).not.toContain("/files/delete");
   });
 
+  it("元数据：GET /files/get_info?file_id= 且正确映射 fid/sha/s", async () => {
+    const { calls, transport } = recorder({
+      "/files/get_info": {
+        state: true,
+        data: [
+          {
+            fid: "111",
+            cid: "222",
+            pid: "0",
+            n: "a.mp4",
+            s: "12345",
+            sha: "ABCDEF",
+            ico: "mp4",
+            fc: 1,
+            te: "1795072569",
+          },
+        ],
+      },
+    });
+    const e = await client(transport).stat("111");
+    expect(calls[0].url).toBe("https://webapi.115.com/files/get_info?file_id=111");
+    expect(e).toMatchObject({ id: "111", fid: "111", cid: undefined, pid: "222", size: 12345, sha1: "ABCDEF", isDir: false });
+    expect(e?.mtime).toBe(1795072569);
+  });
+
+  it("目录条目：id 取 cid（目录没有 fid），文件条目 id 取 fid", async () => {
+    const transport: Transport = async () => ({
+      status: 200,
+      text: "{}",
+      json: {
+        state: true,
+        count: 2,
+        data: [
+          { cid: "777", pid: "0", n: "子目录", fc: 0 },
+          { fid: "888", cid: "777", pid: "0", n: "文件.mp4", fc: 1, s: "100", sha: "AA", te: "1700000000" },
+        ],
+        path: [{ cid: "0", name: "根目录" }],
+      },
+    });
+    const res = await client(transport).listDir("0");
+    expect(res.total).toBe(2);
+    expect(res.hasMore).toBe(false);
+    expect(res.entries[0]).toMatchObject({ id: "777", cid: "777", fid: undefined, pid: "0", isDir: true });
+    expect(res.entries[1]).toMatchObject({ id: "888", fid: "888", cid: undefined, pid: "777", isDir: false, size: 100 });
+    expect(res.path?.[0].name).toBe("根目录");
+  });
+
+  it("建目录：回传新目录 cid", async () => {
+    const transport: Transport = async () => ({
+      status: 200,
+      text: "{}",
+      json: { state: true, cid: "555", cname: "新目录" },
+    });
+    const created = await client(transport).mkdir("0", "新目录");
+    expect(created).toEqual({ cid: "555" });
+  });
+
   it("返回 HTML 时判定为会话过期", async () => {
     const transport: Transport = async () => ({ status: 200, text: "<!DOCTYPE html><html>登录</html>" });
     await expect(client(transport).listDir("0")).rejects.toMatchObject({ kind: "session_expired" });

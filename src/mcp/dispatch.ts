@@ -9,7 +9,7 @@ import { P115Client } from "../115/client";
 import { P115Error } from "../115/errors";
 import type { P115Entry } from "../115/types";
 import { AuditLog } from "../policy/audit";
-import { PolicyEngine } from "../policy/engine";
+import { BreakerOpenError, NeedsConfirmationError, PolicyEngine } from "../policy/engine";
 import { decideDeletionRoute, quarantineDirName } from "../policy/quarantine";
 import { TOOLS } from "./tools";
 
@@ -21,11 +21,21 @@ export interface DispatchDeps {
   ensureQuarantineDir: (name: string) => Promise<string>;
   /** 是否放开写工具（默认只读） */
   isWriteEnabled: () => boolean;
+  /** 计划清单 48h 时效检查（AGENTS 第四节） */
+  planFresh?: () => { fresh: boolean; detail: string };
 }
 
 export interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
   isError?: boolean;
+}
+
+/** 策略层主动拒绝（不是 115 报错）：也要落审计，留下「agent 试过但被拦下」的痕迹。 */
+export class PolicyRejectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PolicyRejectedError";
+  }
 }
 
 const ok = (text: string): ToolResult => ({ content: [{ type: "text", text }] });
@@ -53,21 +63,31 @@ export class ToolDispatcher {
       switch (name) {
         case "list_dir": {
           const cid = String(args.cid ?? this.client.rootCid);
-          const res = await this.deps.policy.read(() => this.client.listDir(cid));
-          return ok(JSON.stringify(res.entries.map(brief), null, 2));
+          const offset = Number(args.offset ?? 0);
+          const limit = Math.min(Number(args.limit ?? 200), 1000);
+          const res = await this.deps.policy.read(() => this.client.listDir(cid, offset, limit));
+          const head = {
+            cid,
+            total: res.total,
+            hasMore: res.hasMore,
+            path: res.path,
+          };
+          return ok(JSON.stringify({ ...head, entries: res.entries.map(brief) }, null, 2));
         }
         case "stat": {
           const target = String(args.cid_or_fid);
-          const res = await this.deps.policy.read(() => this.client.listDir(target === "0" ? target : target, 0, 1150));
-          const hit = res.entries.find((e) => e.id === target);
+          if (!target || target === "0") return fail("stat 需要具体的 cid 或 fid（根目录不支持）");
+          const hit = await this.deps.policy.read(() => this.client.stat(target));
           if (!hit) return fail(`未找到目标：${target}`);
           return ok(JSON.stringify(brief(hit), null, 2));
         }
         case "search": {
-          const q = String(args.query ?? "");
-          const page = Number(args.page ?? 1);
-          const res = await this.deps.policy.read(() => this.client.search(q, page));
-          return ok(JSON.stringify(res.map(brief), null, 2));
+          const q = String(args.query ?? "").trim();
+          if (!q) return fail("search 需要非空关键词");
+          const page = Math.max(1, Number(args.page ?? 1));
+          const limit = Math.min(Number(args.limit ?? 100), 1000);
+          const res = await this.deps.policy.read(() => this.client.search(q, (page - 1) * limit, limit));
+          return ok(JSON.stringify({ query: q, page, count: res.length, entries: res.map(brief) }, null, 2));
         }
         case "quota": {
           const q = await this.deps.policy.read(() => this.client.quota());
@@ -78,20 +98,24 @@ export class ToolDispatcher {
           return ok(JSON.stringify(state, null, 2));
         }
         case "preflight": {
+          const fresh = this.deps.planFresh?.() ?? { fresh: true, detail: "未配置清单时效检查" };
           const result = await this.deps.policy.preflight(async () => {
             const health = await this.deps.auth.healthCheck();
             let storageOk = true;
+            let storageDetail = "";
             try {
-              await this.client.quota();
-            } catch {
+              const q = await this.client.quota();
+              storageDetail = `已用 ${q.used} / 总 ${q.total}`;
+            } catch (err) {
               storageOk = false;
+              storageDetail = (err as Error).message;
             }
             return {
               sessionOk: health.hasCookie && health.fileApiOk,
               riskOk: !health.hasRisk,
               storageOk,
-              planFresh: true, // TODO(M3)：接入 state\*.jsonl 的 48h 时效检查
-              details: health.reason,
+              planFresh: fresh.fresh,
+              details: [health.reason, storageDetail, fresh.detail].filter(Boolean).join("；"),
             };
           });
           return ok(JSON.stringify(result, null, 2));
@@ -99,9 +123,18 @@ export class ToolDispatcher {
         case "mkdir": {
           const pid = String(args.pid);
           const dirName = String(args.name);
-          await this.deps.policy.write(() => this.client.mkdir(pid, dirName));
-          this.deps.audit.write({ action: "mkdir", path: `${pid}/${dirName}`, result: "ok" });
-          return ok(`已创建目录 ${dirName}（父目录 cid=${pid}）`);
+          const created = await this.deps.policy.write(() => this.client.mkdir(pid, dirName));
+          this.deps.audit.write({
+            action: "mkdir",
+            cid: created?.cid,
+            path: `${pid}/${dirName}`,
+            result: "ok",
+          });
+          return ok(
+            created?.cid
+              ? `已创建目录 ${dirName}，cid=${created.cid}（父目录 cid=${pid}）`
+              : `已创建目录 ${dirName}（父目录 cid=${pid}）`,
+          );
         }
         case "rename": {
           const fid = String(args.fid);
@@ -122,8 +155,10 @@ export class ToolDispatcher {
           const fileName = String(args.name);
           const size = Number(args.size ?? 0);
           const decision = decideDeletionRoute(fileName, size);
-          if (decision.route !== "quarantine" && decision.route !== "refuse") {
-            return fail(`该文件类型（${fileName}）应使用 delete_small_garbage，而非 quarantine。`);
+          if (decision.route === "direct_delete") {
+            throw new PolicyRejectedError(
+              `该文件类型（${fileName}）属于白名单小垃圾，应使用 delete_small_garbage，而非 quarantine。`,
+            );
           }
           const dirName = decision.quarantineDir ?? quarantineDirName();
           const quarantineCid = await this.deps.ensureQuarantineDir(dirName);
@@ -144,7 +179,7 @@ export class ToolDispatcher {
           const size = Number(args.size ?? 0);
           const decision = decideDeletionRoute(fileName, size);
           if (decision.route !== "direct_delete") {
-            return fail(`拒绝直接删除：${decision.reason}。请改用 quarantine。`);
+            throw new PolicyRejectedError(`拒绝直接删除：${decision.reason}。请改用 quarantine。`);
           }
           await this.deps.policy.write(() => this.client.remove(fid));
           this.deps.audit.write({
@@ -165,9 +200,34 @@ export class ToolDispatcher {
           return fail(`工具 ${name} 尚未实现`);
       }
     } catch (err) {
+      // 策略层拒绝：也要落审计（原缺口：被拦下的动作在账本里看不见）
+      if (err instanceof PolicyRejectedError) {
+        this.deps.audit.write({
+          action: `tool:${name}`,
+          fid: args.fid !== undefined ? String(args.fid) : undefined,
+          size: args.size !== undefined ? Number(args.size) : undefined,
+          path: args.name !== undefined ? String(args.name) : undefined,
+          result: "failed",
+          detail: `policy_rejected: ${err.message}`,
+        });
+        return fail(err.message);
+      }
+      if (err instanceof NeedsConfirmationError) {
+        this.deps.audit.write({
+          action: `tool:${name}`,
+          result: "failed",
+          detail: `needs_confirmation: ${err.message}`,
+        });
+        return fail(err.message);
+      }
+      if (err instanceof BreakerOpenError) {
+        return fail(`⛔ ${err.message} 请先在插件设置里重新登录并「重置熔断」后再试。`);
+      }
       const e = err instanceof P115Error ? err : new P115Error("unknown", (err as Error).message);
       this.deps.audit.write({
         action: `tool:${name}`,
+        fid: args.fid !== undefined ? String(args.fid) : undefined,
+        size: args.size !== undefined ? Number(args.size) : undefined,
         result: "failed",
         detail: e.raw || e.message,
       });
@@ -178,7 +238,10 @@ export class ToolDispatcher {
 
 function brief(e: P115Entry) {
   return {
+    // id：目录=cid，文件=fid（可直接用于 move / rename / quarantine / delete）
     id: e.id,
+    cid: e.cid,
+    fid: e.fid,
     name: e.name,
     isDir: e.isDir,
     size: e.size,

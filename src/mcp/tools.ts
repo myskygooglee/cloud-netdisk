@@ -26,16 +26,18 @@ export interface ToolDef {
 export const TOOLS: ToolDef[] = [
   {
     name: "list_dir",
-    description: "列出 115 云盘某个目录的内容（只读）。",
+    description: "列出 115 云盘某个目录的内容（只读），返回条目 + 总数 + 面包屑。",
     params: [
       { name: "cid", type: "string", description: "目录 cid，根目录为 0", required: false },
+      { name: "offset", type: "number", description: "起始偏移，默认 0", required: false },
+      { name: "limit", type: "number", description: "每页条数，默认 200，上限 1000", required: false },
     ],
   },
   {
     name: "stat",
-    description: "获取单个文件或目录的元数据（大小、sha1、mtime）。",
+    description: "获取单个文件或目录的元数据（大小、sha1、mtime）—— 走 /files/get_info，文件与目录都支持。",
     params: [
-      { name: "cid_or_fid", type: "string", description: "目标 cid 或 fid", required: true },
+      { name: "cid_or_fid", type: "string", description: "目标 cid（目录）或 fid（文件）", required: true },
     ],
   },
   {
@@ -44,6 +46,7 @@ export const TOOLS: ToolDef[] = [
     params: [
       { name: "query", type: "string", description: "关键词", required: true },
       { name: "page", type: "number", description: "页码，默认 1", required: false },
+      { name: "limit", type: "number", description: "每页条数，默认 100，上限 1000", required: false },
     ],
   },
   {

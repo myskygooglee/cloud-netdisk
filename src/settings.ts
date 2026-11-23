@@ -26,6 +26,10 @@ export interface Obsidian115Settings {
   mcpToken: string;
   /** 是否放开写工具给 agent（默认 false：先只读跑通） */
   enableWriteTools: boolean;
+  /** 115 侧 state 目录（用于 preflight 的清单 48h 时效检查，空 = 跳过） */
+  stateDir: string;
+  /** 清单时效阈值（小时），AGENTS：48 */
+  planMaxAgeHours: number;
 }
 
 export const DEFAULT_SETTINGS: Obsidian115Settings = {
@@ -40,6 +44,8 @@ export const DEFAULT_SETTINGS: Obsidian115Settings = {
   quarantineRootCid: "",
   mcpToken: "",
   enableWriteTools: false,
+  stateDir: "D:\\115-MCP-Server\\state\\inventory_full_20261123",
+  planMaxAgeHours: 48,
 };
 
 export class Obsidian115SettingTab extends PluginSettingTab {
@@ -238,6 +244,47 @@ export class Obsidian115SettingTab extends PluginSettingTab {
           this.plugin.settings.maxWritesBeforeConfirm = Math.max(1, Number(v) || 3);
           await this.plugin.saveSettings();
         }),
+      );
+
+    new Setting(containerEl)
+      .setName("清单目录（preflight 48h 时效检查）")
+      .setDesc("AGENTS 要求开工前确认计划文件生成于 48 小时内。填 115-MCP-Server 的 state 目录；留空则按「无清单」拒绝开工。")
+      .addText((text) =>
+        text
+          .setPlaceholder("D:\\115-MCP-Server\\state\\inventory_full_20261123")
+          .setValue(this.plugin.settings.stateDir)
+          .onChange(async (v) => {
+            this.plugin.settings.stateDir = v.trim();
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("清单时效阈值（小时）")
+      .setDesc("AGENTS 规定 48 小时，不要放大。")
+      .addText((text) =>
+        text.setValue(String(this.plugin.settings.planMaxAgeHours)).onChange(async (v) => {
+          this.plugin.settings.planMaxAgeHours = Math.max(1, Number(v) || 48);
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("风控熔断状态")
+      .setDesc(
+        this.plugin.policy.isBreakerOpen
+          ? `⛔ 已熔断：${this.plugin.policy.breakerInfo}`
+          : "正常（未熔断）",
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("重置熔断")
+          .setWarning()
+          .onClick(async () => {
+            this.plugin.policy.reset();
+            new Notice("已重置熔断与写计数；请先确认会话已恢复再继续。");
+            this.display();
+          }),
       );
   }
 }

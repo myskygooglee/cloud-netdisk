@@ -3,6 +3,7 @@ import { randomBytes } from "crypto";
 import { AuthManager } from "./115/auth";
 import { AuditLog } from "./policy/audit";
 import { PolicyEngine } from "./policy/engine";
+import { checkPlanFreshness } from "./policy/planFresh";
 import { ToolDispatcher } from "./mcp/dispatch";
 import { McpServerInfo, startMcpServer } from "./mcp/server";
 import { DEFAULT_SETTINGS, Obsidian115Settings, Obsidian115SettingTab } from "./settings";
@@ -67,6 +68,8 @@ export default class Obsidian115Plugin extends Plugin {
       audit: this.audit,
       ensureQuarantineDir: async (name) => this.ensureQuarantineDir(name),
       isWriteEnabled: () => this.settings.enableWriteTools,
+      planFresh: () =>
+        checkPlanFreshness(this.settings.stateDir, this.settings.planMaxAgeHours),
     });
 
     this.registerView(VIEW_TYPE_115, (leaf) => new TreeView(leaf, this));
@@ -178,11 +181,13 @@ export default class Obsidian115Plugin extends Plugin {
     const existing = await this.policy.read(() => client.listDir(rootCid));
     const hit = existing.entries.find((e) => e.isDir && e.name === name);
     if (hit) return hit.id;
-    await this.policy.write(() => client.mkdir(rootCid, name));
+    const created = await this.policy.write(() => client.mkdir(rootCid, name));
+    if (created?.cid) return created.cid;
+    // 接口没回 cid 时回查一次（隔离目录必须拿到 cid 才能移动文件）
     const after = await this.policy.read(() => client.listDir(rootCid));
-    const created = after.entries.find((e) => e.isDir && e.name === name);
-    if (!created) throw new Error(`隔离目录 ${name} 创建后未在远端找到`);
-    return created.id;
+    const found = after.entries.find((e) => e.isDir && e.name === name);
+    if (!found) throw new Error(`隔离目录 ${name} 创建后未在远端找到`);
+    return found.id;
   }
 
   private async activateView(): Promise<void> {

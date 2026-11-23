@@ -38,8 +38,12 @@ export interface P115Quota {
 export interface P115ListResult {
   /** 本目录下的条目 */
   entries: P115Entry[];
+  /** 该目录下的总条目数（115 的 `count`） */
+  total?: number;
   /** 是否还有下一页 */
   hasMore: boolean;
+  /** 从根到当前目录的链路（面包屑） */
+  path?: Array<{ cid: string; name: string }>;
 }
 
 /** 容量单位换算：115 后端返回的是 TiB 口径的字节数，这里统一按 TiB/GiB 显示。 */

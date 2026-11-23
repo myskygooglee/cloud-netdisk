@@ -126,12 +126,14 @@ describe("M5 · 连续 3 次写后停下确认", () => {
     expect(calls).toHaveLength(4);
   });
 
-  it("被策略拒绝的操作不会触碰 115（当前不落审计，见笔记中的 M5 遗留项）", async () => {
+  it("被策略拒绝的操作不触碰 115，但会落一条 failed 审计", async () => {
     const { dispatcher, calls, audits } = makeDispatcher({ writeEnabled: true });
     const res = await dispatcher.call("delete_small_garbage", { fid: "2", name: "x.exe", size: 1 });
     expect(res.isError).toBe(true);
     expect(calls).toHaveLength(0);
-    // 已知缺口：策略层直接拒绝（未进入 try/catch 的异常路径）时不会写审计
-    expect(audits.some((a) => a.result === "failed")).toBe(false);
+    // 2026-11-23 修复：策略拒绝改为抛 PolicyRejectedError，统一走 catch 落审计
+    const rejected = audits.filter((a) => a.result === "failed");
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0].detail).toContain("policy_rejected");
   });
 });
