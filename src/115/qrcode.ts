@@ -16,8 +16,8 @@
 
 import { requestUrl } from "obsidian";
 import { P115Error, classifyP115Error } from "./errors";
-import { HttpResponse, Transport, httpTransport } from "./client";
-import { rawStr } from "./types";
+import { HttpResponse, Transport, httpTransport, pickAcwTc } from "./client";
+import { describeEnvelopeError, isFailedEnvelope, rawStr } from "./types";
 import type { Raw115Envelope, Raw115Object } from "./types";
 
 const QRCODE_API = "https://qrcodeapi.115.com";
@@ -29,10 +29,18 @@ export interface QrSession {
   uid: string;
   time: number;
   sign: string;
-  /** 二维码图片（data URI 或 https 链接），115 返回 base64 PNG 时会带 `data:image/png;base64,` 前缀 */
+  /** 扫码链接（115 App 扫一扫可直接打开）；115 不给图片 URL，只给这个 */
   qrcode: string;
-  /** 扫码链接（115 App 扫一扫可直接打开） */
+  /** 同上，语义化别名 */
   scanUrl: string;
+  /**
+   * token 请求时 115 下发的 `acw_tc`。
+   *
+   * 2026-11-23 实测：`/app/1.0/{app}/1.0/login/qrcode/` 会校验这个粘性 cookie，
+   * 不带它取结果会返回 `errno=40101017 老乡验证失败！`（**未扫码时也会这样**）。
+   * 隧道里带不带都没用 —— 关键是它必须是**同一次 token 请求拿到的那一个**。
+   */
+  acwTc?: string;
 }
 
 export interface QrLoginOptions {
@@ -73,17 +81,15 @@ export class QrLogin {
     this.app = opts.app ?? "web";
   }
 
-  private async get(url: string): Promise<Raw115Object> {
+  private async get(url: string, session?: QrSession): Promise<{ data: Raw115Object; res: HttpResponse }> {
     let res: HttpResponse;
+    const headers: Record<string, string> = {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) 115Browser/36.2.28",
+      Referer: "https://115.com/",
+    };
+    if (session?.acwTc) headers.Cookie = `acw_tc=${session.acwTc}`;
     try {
-      res = await this.transport({
-        url,
-        method: "GET",
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) 115Browser/36.2.28",
-          Referer: "https://115.com/",
-        },
-      });
+      res = await this.transport({ url, method: "GET", headers });
     } catch (err) {
       const raw = err instanceof Error ? err.message : String(err);
       throw new P115Error(classifyP115Error(raw), raw, raw);
@@ -92,17 +98,17 @@ export class QrLogin {
       throw new P115Error("unknown", "扫码接口返回了非 JSON 内容", res.text.slice(0, 300));
     }
     const body = res.json as Raw115Envelope;
-    if (body.state === false) {
-      const msg = `${body.error ?? "unknown error"} errno=${body.errno ?? "?"}`;
+    if (isFailedEnvelope(body)) {
+      const msg = describeEnvelopeError(body);
       throw new P115Error(classifyP115Error(msg), msg, JSON.stringify(body).slice(0, 300));
     }
     const data = body.data;
-    return data !== null && typeof data === "object" ? (data as Raw115Object) : {};
+    return { data: data !== null && typeof data === "object" ? (data as Raw115Object) : {}, res };
   }
 
   /** 第 1 步：取二维码。 */
   async start(): Promise<QrSession> {
-    const data = await this.get(`${QRCODE_API}/api/1.0/${this.app}/1.0/token/`);
+    const { data, res } = await this.get(`${QRCODE_API}/api/1.0/${this.app}/1.0/token/`);
     const uid = rawStr(data.uid);
     if (!uid) throw new P115Error("unknown", "115 未返回二维码 uid", JSON.stringify(data).slice(0, 300));
     const raw = rawStr(data.qrcode);
@@ -116,6 +122,7 @@ export class QrLogin {
       sign: rawStr(data.sign),
       qrcode,
       scanUrl: `https://115.com/scan/dg-${uid}`,
+      acwTc: pickAcwTc(res.headers?.["set-cookie"]),
     };
   }
 
@@ -153,38 +160,55 @@ export class QrLogin {
       time: String(session.time),
       sign: session.sign,
     });
-    const data = await this.get(`${QRCODE_API}/get/status/?${qs.toString()}`);
+    const { data } = await this.get(`${QRCODE_API}/get/status/?${qs.toString()}`, session);
     const raw = Number(data.status ?? 0);
     const status: QrStatus =
       raw === 0 ? "waiting" : raw === 1 ? "scanned" : raw === 2 ? "signed_in" : raw === -1 ? "expired" : raw === -2 ? "canceled" : "unknown";
     return { status, raw };
   }
 
-  /** 第 3 步：取回 Cookie 串。 */
+  /**
+   * 第 3 步：取回 Cookie 串。
+   *
+   * ⚠️ 必须带上 token 请求下发的 `acw_tc`（115 的 WAF 粘性 cookie）。
+   * 少了它会返回 `errno=40101017 老乡验证失败！` —— 而这个响应是 `state: 0`（数字），
+   * 旧代码只判 `state === false`，于是把它当成成功，最后报成
+   * 「扫码成功但未返回 Cookie」（2026-11-23 用户实测踩到）。
+   */
   async finish(session: QrSession): Promise<string> {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/x-www-form-urlencoded",
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) 115Browser/36.2.28",
+      Referer: "https://115.com/",
+      Origin: "https://115.com",
+    };
+    if (session.acwTc) headers.Cookie = `acw_tc=${session.acwTc}`;
     const res = await this.transport({
       url: `${QRCODE_API}/app/1.0/${this.app}/1.0/login/qrcode/`,
       method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) 115Browser/36.2.28",
-        Referer: "https://115.com/",
-      },
+      headers,
       body: `account=${encodeURIComponent(session.uid)}`,
     });
     if (res.json === undefined) {
       throw new P115Error("unknown", "扫码结果返回了非 JSON 内容", res.text.slice(0, 300));
     }
     const body = res.json as Raw115Envelope;
-    if (body.state === false) {
-      const msg = `${body.error ?? "unknown error"} errno=${body.errno ?? "?"}`;
+    if (isFailedEnvelope(body)) {
+      const msg = describeEnvelopeError(body);
       throw new P115Error(classifyP115Error(msg), msg, JSON.stringify(body).slice(0, 300));
     }
     const data = body.data;
-    const payload =
-      data !== null && typeof data === "object" ? (data as Raw115Object) : {};
+    const payload = data !== null && typeof data === "object" ? (data as Raw115Object) : {};
     const cookie = rawStr(payload.cookie);
-    if (!cookie) throw new P115Error("unknown", "扫码成功但未返回 Cookie", JSON.stringify(body).slice(0, 300));
+    if (!cookie) {
+      // 这里以前会报「扫码成功但未返回 Cookie」，但真实原因多半是 state=0 的失败响应，
+      // 现在 isFailedEnvelope 会先拦下；走到这里说明确实是结构异常，把原始响应一起抛出来。
+      throw new P115Error(
+        "unknown",
+        `未返回 Cookie（响应结构异常，请把这段发给开发者）：${JSON.stringify(body).slice(0, 300)}`,
+        JSON.stringify(body).slice(0, 300),
+      );
+    }
     return cookie;
   }
 }

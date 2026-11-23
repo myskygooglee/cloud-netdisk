@@ -71,6 +71,51 @@ describe("扫码登录", () => {
     await expect(new QrLogin({ transport, app: "web" }).start()).rejects.toThrow(/IP登录异常/);
   });
 
+  it("state 为数字 0 也算失败（这是「老乡验证失败」的真实形态）", async () => {
+    const { transport } = fakeTransport([
+      { state: 0, error: "老乡验证失败！", errno: 40101017, message: "老乡验证失败！", code: 40101017 },
+    ]);
+    const qr = new QrLogin({ transport, app: "web" });
+    // 取结果接口收到 state:0 时必须抛错，不能当成「成功但没 cookie」
+    await expect(
+      qr.finish({ app: "web", uid: "u", time: 1, sign: "s", qrcode: "q", scanUrl: "u" }),
+    ).rejects.toThrow(/老乡验证失败/);
+  });
+
+  it("finish 会带上 token 请求下发的 acw_tc（否则 115 报 40101017）", async () => {
+    const calls: Array<{ headers?: Record<string, string> }> = [];
+    const transport: Transport = async (opts) => {
+      calls.push({ headers: opts.headers });
+      const payload = { state: 1, data: { cookie: "UID=1; SEID=2" } };
+      return { status: 200, text: JSON.stringify(payload), json: payload } as HttpResponse;
+    };
+    const qr = new QrLogin({ transport, app: "web" });
+    await qr.finish({
+      app: "web",
+      uid: "u",
+      time: 1,
+      sign: "s",
+      qrcode: "q",
+      scanUrl: "u",
+      acwTc: "ACW123",
+    });
+    expect(calls[0].headers?.Cookie).toBe("acw_tc=ACW123");
+  });
+
+  it("start 会从 Set-Cookie 里抓出 acw_tc 存进 session", async () => {
+    const transport: Transport = async () => {
+      const payload = { state: 1, data: { uid: "U9", time: 5, sign: "S9", qrcode: "https://115.com/scan/dg-U9" } };
+      return {
+        status: 200,
+        text: JSON.stringify(payload),
+        json: payload,
+        headers: { "set-cookie": "acw_tc=ABC987;path=/;HttpOnly;Max-Age=1800" },
+      } as HttpResponse;
+    };
+    const session = await new QrLogin({ transport, app: "web" }).start();
+    expect(session.acwTc).toBe("ABC987");
+  });
+
   it("二维码图片走 /api/1.0/{app}/1.0/qrcode?uid=，转成 data URI", async () => {
     const seen: string[] = [];
     const binaryTransport = async (url: string) => {

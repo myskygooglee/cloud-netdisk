@@ -9,7 +9,7 @@
 
 import { requestUrl } from "obsidian";
 import { P115Error, classifyP115Error } from "./errors";
-import { rawStr } from "./types";
+import { describeEnvelopeError, isFailedEnvelope, rawStr } from "./types";
 import type {
   P115Entry,
   P115ListResult,
@@ -27,6 +27,8 @@ export interface HttpResponse {
   base64?: string;
   /** response 的 Content-Type */
   contentType?: string;
+  /** 响应头（小写键） */
+  headers?: Record<string, string>;
 }
 
 export type Transport = (opts: {
@@ -51,8 +53,17 @@ export const httpTransport: Transport = async (opts) => {
   } catch {
     json = undefined;
   }
-  return { status: res.status, text, json };
+  const headers: Record<string, string> = {};
+  for (const [k, v] of Object.entries(res.headers ?? {})) headers[k.toLowerCase()] = String(v);
+  return { status: res.status, text, json, headers };
 };
+
+/** 从 Set-Cookie 里取出 `acw_tc`（115 的会话粘性 cookie）。 */
+export function pickAcwTc(setCookie: string | undefined): string {
+  if (!setCookie) return "";
+  const m = /(?:^|[,\s])acw_tc=([^;,\s]+)/i.exec(setCookie);
+  return m ? m[1] : "";
+}
 
 const WEB = "https://webapi.115.com";
 
@@ -184,9 +195,12 @@ export class P115Client {
       throw new P115Error(classifyP115Error(raw), raw, raw);
     }
     const body = this.parseJson(res);
-    if (body.state === false) {
-      const msg = `${body.error ?? "unknown error"} errno=${body.errno ?? "?"}`;
-      throw new P115Error(classifyP115Error(msg), msg, JSON.stringify(body).slice(0, 400));
+    if (isFailedEnvelope(body)) {
+      throw new P115Error(
+        classifyP115Error(describeEnvelopeError(body)),
+        describeEnvelopeError(body),
+        JSON.stringify(body).slice(0, 400),
+      );
     }
     return body;
   }

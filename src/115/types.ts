@@ -66,9 +66,12 @@ export interface Raw115Entry {
 
 /** 115 接口的通用响应外壳（`data` 拆壳前）。 */
 export interface Raw115Envelope {
-  state?: boolean;
+  /** 注意：成功时可能是 `true` / `1`，失败时可能是 `false` / `0` —— 见 isFailedEnvelope */
+  state?: boolean | number | string;
   error?: string;
+  message?: string;
   errno?: number;
+  code?: number;
   data?: unknown;
   /** 列表接口的总条数 */
   count?: number;
@@ -94,6 +97,27 @@ export function rawNum(value: unknown, fallback = 0): number {
     return Number.isFinite(n) ? n : fallback;
   }
   return fallback;
+}
+
+/**
+ * 115 的 `state` 失败写法不止一种：`false`、数字 `0`、字符串 `"0"`。
+ *
+ * 2026-11-23 实测：`POST /app/1.0/web/1.0/login/qrcode/` 在未扫码/会话不匹配时返回
+ * `{"state":0,"error":"老乡验证失败！","errno":40101017}`。
+ * 旧代码只判 `state === false`，于是这种响应被当成**成功**，
+ * 后续读 `data.cookie` 得到空串 → 报「扫码成功但未返回 Cookie」，把真错误吞掉了。
+ *
+ * 判定方式与 p115client 的 `check_response` 一致：**只认 truthy**。
+ */
+export function isFailedEnvelope(body: Raw115Envelope): boolean {
+  return !body.state;
+}
+
+/** 把 115 的错误响应拼成可读文本（带错误码，便于判断风控/限流）。 */
+export function describeEnvelopeError(body: Raw115Envelope): string {
+  const err = rawStr(body.error) || "unknown error";
+  const errno = body.errno ?? (body as Record<string, unknown>).code ?? "?";
+  return `${err}（errno=${errno}）`;
 }
 
 export interface P115Quota {
