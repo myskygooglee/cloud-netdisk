@@ -55,6 +55,91 @@
   margin-bottom: 6px;
 }
 
+/* ---------- 写模式状态条 / 行操作（M6 剩余项） ---------- */
+
+.cloud-netdisk-write-bar {
+  font-size: var(--font-ui-smaller);
+  padding: 3px 6px;
+  margin-bottom: 6px;
+  border-radius: 4px;
+  word-break: break-word;
+}
+
+.cloud-netdisk-write-bar.is-readonly {
+  color: var(--text-muted);
+  background: var(--background-secondary);
+}
+
+.cloud-netdisk-write-bar.is-writable {
+  color: var(--text-success, #2e7d32);
+  background: var(--background-secondary);
+}
+
+.cloud-netdisk-row-action {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  height: 18px;
+  line-height: 1;
+  font-size: 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.cloud-netdisk-row-action:hover {
+  color: var(--text-normal);
+}
+
+.cloud-netdisk-row-menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  padding: 4px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.cloud-netdisk-row-menu-item {
+  text-align: left;
+  padding: 5px 8px;
+  font-size: var(--font-ui-small);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-normal);
+  cursor: pointer;
+}
+
+.cloud-netdisk-row-menu-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.cloud-netdisk-row-menu-item.is-destructive {
+  color: var(--text-error);
+}
+
+.cloud-netdisk-confirm-body {
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: var(--font-ui-small);
+  line-height: 1.6;
+  margin: 8px 0;
+}
+
+.cloud-netdisk-confirm-hint {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.cloud-netdisk-inline-input {
+  width: 100%;
+  margin: 6px 0;
+}
+
 /* ---------- 一键备份到 115 ---------- */
 
 .cloud-netdisk-backup-bar {

@@ -10,6 +10,8 @@
 
 import { ItemView, Notice, setIcon, WorkspaceLeaf } from "obsidian";
 import { formatBytes, P115Entry } from "../115/types";
+import { decideDeletionRoute } from "../policy/quarantine";
+import { ConfirmModal } from "./confirmModal";
 import type Cloud115Plugin from "../main";
 
 export const VIEW_TYPE_115 = "cloud-netdisk-tree";
@@ -70,6 +72,7 @@ export class TreeView extends ItemView {
 
     this.renderHeader(root);
     this.renderBreadcrumb(root);
+    this.renderWriteBar(root);
     this.renderQuota(root);
 
     const body = root.createDiv({ cls: "cloud-netdisk-body" });
@@ -103,6 +106,10 @@ export class TreeView extends ItemView {
       this.searchResults = null;
       void this.render();
     });
+    // 在当前目录新建子目录（一次一个）
+    if (!this.query) {
+      this.iconButton(actions, "folder-plus", "在当前目录新建子目录", () => void this.createFolder());
+    }
 
     const searchRow = head.createDiv({ cls: "cloud-netdisk-search" });
     const input = searchRow.createEl("input", {
@@ -158,6 +165,195 @@ export class TreeView extends ItemView {
         void this.render();
       });
     });
+  }
+
+  /** 写模式状态条：让人一眼看到当前是不是只读 / 被锁 / 被熔断。 */
+  private renderWriteBar(root: HTMLElement): void {
+    const bar = root.createDiv({ cls: "cloud-netdisk-write-bar" });
+    const status = this.plugin.uiWriteStatus();
+    const ok = this.plugin.uiWriteEnabled && !status.startsWith("⛔");
+    bar.addClass(ok ? "is-writable" : "is-readonly");
+    bar.setText(`${ok ? "✎ 写模式" : "🔒 只读"} · ${status}`);
+  }
+
+  /** 在当前目录建一个新目录（带确认弹窗）。 */
+  private createFolder(): void {
+    if (!this.guardWriteEnabled()) return;
+    const parentCid = this.currentCid();
+    const parentName = this.crumbs[this.crumbs.length - 1]?.name ?? "根目录";
+    const input = activeDocument.createElement("input");
+    input.type = "text";
+    input.placeholder = "新目录名";
+    input.className = "cloud-netdisk-inline-input";
+    new ConfirmModal(
+      this.app,
+      {
+        title: "新建子目录",
+        lines: [`父目录：${parentName}（cid=${parentCid}）`, "目录名：" + (input.value.trim() || "（未填写）")],
+      },
+      () => void this.plugin.uiWrite("mkdir", { pid: parentCid, name: input.value.trim() }),
+    ).open();
+    // 弹窗打开后再挂输入框到确认区（Modal 已渲染，直接找 body 里的 pre 前插入）
+    // 用微任务等 Modal 的 onOpen 完成
+    queueMicrotask(() => {
+      const modal = activeDocument.querySelector(".modal-container:last-of-type");
+      const pre = modal?.querySelector(".cloud-netdisk-confirm-body");
+      if (pre && pre.parentNode) {
+        pre.parentNode.insertBefore(input, pre);
+        input.focus();
+      }
+    });
+  }
+
+  /** 统一检查写开关；关闭时给出明确提示。 */
+  private guardWriteEnabled(): boolean {
+    if (this.plugin.uiWriteEnabled) return true;
+    new Notice("当前是只读模式：请到 设置 → 115 Cloud → 放开写工具", 6000);
+    return false;
+  }
+
+  /** 给单个条目挂一个「⋯ 操作」菜单（每项带确认弹窗）。 */
+  private attachActions(row: HTMLElement, entry: P115Entry): void {
+    if (!this.plugin.uiWriteEnabled) return;
+    const btn = row.createEl("button", { cls: "cloud-netdisk-row-action", text: "⋯" });
+    btn.setAttribute("title", "操作（新建/重命名/移动/隔离/删除）");
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      this.openRowMenu(btn, entry);
+    });
+  }
+
+  /** 行内简易菜单：用 Obsidian 的 Menu 更自然，但这里只用原生弹出层以免引入更多 API 依赖。 */
+  private openRowMenu(anchor: HTMLElement, entry: P115Entry): void {
+    const menu = activeDocument.createElement("div");
+    menu.addClass("cloud-netdisk-row-menu");
+    activeDocument.body.appendChild(menu);
+    const rect = anchor.getBoundingClientRect();
+    menu.setAttribute("style", `position:fixed;top:${rect.bottom + 2}px;left:${Math.min(rect.left, window.innerWidth - 220)}px;z-index:10000`);
+
+    const addItem = (label: string, fn: () => void, destructive = false) => {
+      const b = menu.createEl("button", { text: label, cls: "cloud-netdisk-row-menu-item" });
+      if (destructive) b.addClass("is-destructive");
+      b.addEventListener("click", () => {
+        menu.remove();
+        fn();
+      });
+    };
+
+    // 重命名（目录与文件都可）
+    addItem("重命名", () => this.renameEntry(entry));
+    // 移动（需要目标 cid，弹窗里填）
+    addItem("移动到目录…", () => this.moveEntry(entry));
+
+    if (!entry.isDir) {
+      const decision = decideDeletionRoute(entry.name, entry.size);
+      if (decision.route === "quarantine") {
+        addItem("隔离到 _去重待删", () => this.quarantineEntry(entry), true);
+      } else if (decision.route === "direct_delete") {
+        addItem("删除（进回收站）", () => this.deleteEntry(entry), true);
+      } else {
+        addItem("隔离（此类型禁止直删）", () => this.quarantineEntry(entry), true);
+      }
+    }
+    if (entry.isDir) {
+      addItem("在此目录新建子目录", () => {
+        this.crumbs.push({ cid: entry.id, name: entry.name });
+        void this.render().then(() => this.createFolder());
+      });
+    }
+
+    // 点空白处关掉
+    const close = (e: MouseEvent) => {
+      if (!menu.contains(e.target as Node)) {
+        menu.remove();
+        activeDocument.removeEventListener("mousedown", close);
+      }
+    };
+    window.setTimeout(() => activeDocument.addEventListener("mousedown", close), 0);
+  }
+
+  private renameEntry(entry: P115Entry): void {
+    const input = activeDocument.createElement("input");
+    input.type = "text";
+    input.value = entry.name;
+    input.className = "cloud-netdisk-inline-input";
+    new ConfirmModal(
+      this.app,
+      {
+        title: "重命名",
+        lines: [`目标：${entry.name}`, `fid/cid：${entry.id}`, "（请在下方输入框填写新名称）"],
+      },
+      () => void this.plugin.uiWrite("rename", { fid: entry.id, newName: input.value.trim() }),
+    ).open();
+    queueMicrotask(() => {
+      const modal = activeDocument.querySelector(".modal-container:last-of-type");
+      const pre = modal?.querySelector(".cloud-netdisk-confirm-body");
+      if (pre && pre.parentNode) {
+        pre.parentNode.insertBefore(input, pre);
+        input.focus();
+        input.select();
+      }
+    });
+  }
+
+  private moveEntry(entry: P115Entry): void {
+    const input = activeDocument.createElement("input");
+    input.type = "text";
+    input.placeholder = "目标目录 cid（可用侧栏文件详情复制）";
+    input.className = "cloud-netdisk-inline-input";
+    new ConfirmModal(
+      this.app,
+      {
+        title: "移动到目录",
+        lines: [`目标：${entry.name}`, `fid/cid：${entry.id}`, "移动不可撤销，请确认目标 cid。"],
+        destructive: true,
+      },
+      () => void this.plugin.uiWrite("move", { fid: entry.id, toPid: input.value.trim() }),
+    ).open();
+    queueMicrotask(() => {
+      const modal = activeDocument.querySelector(".modal-container:last-of-type");
+      const pre = modal?.querySelector(".cloud-netdisk-confirm-body");
+      if (pre && pre.parentNode) {
+        pre.parentNode.insertBefore(input, pre);
+        input.focus();
+      }
+    });
+  }
+
+  private quarantineEntry(entry: P115Entry): void {
+    const decision = decideDeletionRoute(entry.name, entry.size);
+    new ConfirmModal(
+      this.app,
+      {
+        title: "隔离文件（可逆）",
+        lines: [
+          `文件：${entry.name}`,
+          `fid：${entry.fid ?? entry.id}`,
+          `大小：${formatBytes(entry.size)}`,
+          `策略：${decision.reason}`,
+          `隔离目录：${decision.quarantineDir ?? "按当天日期生成"}`,
+        ],
+        destructive: true,
+      },
+      () => void this.plugin.uiWrite("quarantine", { fid: entry.fid ?? entry.id, name: entry.name, size: entry.size }),
+    ).open();
+  }
+
+  private deleteEntry(entry: P115Entry): void {
+    const decision = decideDeletionRoute(entry.name, entry.size);
+    new ConfirmModal(
+      this.app,
+      {
+        title: "删除小垃圾（进回收站）",
+        lines: [
+          `文件：${entry.name}`,
+          `fid：${entry.fid ?? entry.id}`,
+          `策略：${decision.reason}`,
+        ],
+        destructive: true,
+      },
+      () => void this.plugin.uiWrite("delete_small_garbage", { fid: entry.fid ?? entry.id, name: entry.name, size: entry.size }),
+    ).open();
   }
 
   private renderQuota(root: HTMLElement): void {
@@ -250,6 +446,9 @@ export class TreeView extends ItemView {
       text: entry.isDir ? "" : formatBytes(entry.size),
     });
     if (entry.isDir) icon.setAttribute("title", `cid=${entry.id}`);
+
+    // 写模式：每行挂一个操作菜单（⋯），单条目操作
+    this.attachActions(row, entry);
 
     // 文件：点击就地显示元数据（只读）
     if (!entry.isDir) {

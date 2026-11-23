@@ -13,6 +13,7 @@ import { TreeView, VIEW_TYPE_115 } from "./ui/treeView";
 import { AGENT_GUIDE } from "./mcp/guidance";
 import { BackupHandle, describeProgress, resolvePath, startVaultBackup } from "./backup/vaultBackup";
 import { detectServerPaths, isForeignServerPath, pathExists } from "./util/paths";
+import { decideDeletionRoute, quarantineDirName } from "./policy/quarantine";
 
 /** 剪贴板复制（优先 navigator.clipboard，失败时退回 DOM 复制）。 */
 async function copyToClipboard(text: string): Promise<boolean> {
@@ -367,6 +368,142 @@ export default class Cloud115Plugin extends Plugin {
     this.backup?.cancel();
     this.backup = null;
     this.backupStatus = "已取消";
+  }
+
+  // ------------------------------------------------------------ 侧栏写操作
+  //
+  // 2026-11-23（M6 剩余项）：侧栏从"只读浏览器"升级为可写。
+  // 关键：**UI 写入必须和 agent 走完全相同的闸门**——
+  //   写开关 / 跨进程锁 / preflight / policy.write 串行限速 / 3 写停 / 熔断 / 审计
+  // 否则"人在界面上随手点"就会绕过 AGENTS 的限速规则，反而更容易撞风控。
+
+  /** 侧栏能否写（设置页开关 + 熔断状态）。 */
+  get uiWriteEnabled(): boolean {
+    return this.settings.enableWriteTools;
+  }
+
+  /** 当前策略状态描述（写按钮的提示用）。 */
+  uiWriteStatus(): string {
+    if (!this.settings.enableWriteTools) return "只读模式：请在设置页放开写工具";
+    if (this.policy.isBreakerOpen) return `⛔ 已熔断：${this.policy.breakerInfo}`;
+    const lock = this.crossLock.status();
+    if (lock.locked) return `⛔ 批处理正在运行：${lock.detail}`;
+    return "可写（受 3s 间隔 / 60s 冷却 / 3 写停 / 隔离路由约束）";
+  }
+
+  /**
+   * 侧栏写操作的统一入口：先过闸门，再执行，最后落审计。
+   * `action` 用工具名（mkdir / rename / move / quarantine / delete_small_garbage），
+   * 这样 UI 操作与 agent 操作在同一本审计账里。
+   */
+  async uiWrite(
+    action: "mkdir" | "rename" | "move" | "quarantine" | "delete_small_garbage",
+    params: { pid?: string; name?: string; fid?: string; newName?: string; toPid?: string; size?: number },
+  ): Promise<void> {
+    // 闸门 1：写开关
+    if (!this.settings.enableWriteTools) {
+      throw new Error("只读模式：请先在设置页放开写工具");
+    }
+    // 闸门 2：跨进程锁（批处理持锁时连写都不让发）
+    const lock = this.crossLock.guard();
+    if (lock.locked) {
+      this.audit.write({ action: `ui:${action}`, result: "failed", detail: `cross_process_lock: ${lock.detail}` });
+      throw new Error(`⛔ 115 批处理正在运行：${lock.detail}`);
+    }
+    // 闸门 3：开工前必查（和 agent 的 preflight 同一套判据）
+    // 注意：这里只查清单时效 + 会话 + 风控，不重复读容量（避免多打一次 115）
+    const fresh = checkPlanFreshness(this.settings.stateDir, this.settings.planMaxAgeHours);
+    const health = await this.auth.healthCheck();
+    if (!fresh.fresh || !health.fileApiOk || health.hasRisk || this.policy.isBreakerOpen) {
+      const why = [
+        !health.fileApiOk ? `会话异常：${health.reason ?? "?"}` : "",
+        health.hasRisk ? "存在风控标记" : "",
+        !fresh.fresh ? `清单过期：${fresh.detail}` : "",
+        this.policy.isBreakerOpen ? `已熔断：${this.policy.breakerInfo}` : "",
+      ]
+        .filter(Boolean)
+        .join("；");
+      this.audit.write({ action: `ui:${action}`, result: "failed", detail: `preflight_rejected: ${why}` });
+      throw new Error(`开工前必查未通过：${why}`);
+    }
+
+    const client = this.auth.getClient();
+    try {
+      switch (action) {
+        case "mkdir": {
+          const created = await this.policy.write(() => client.mkdir(params.pid ?? "0", params.name ?? ""));
+          this.audit.write({ action: "mkdir", cid: created?.cid, path: `${params.pid}/${params.name}`, result: "ok", detail: "ui" });
+          new Notice(`已创建目录 ${params.name}`);
+          break;
+        }
+        case "rename": {
+          await this.policy.write(() => client.rename(params.fid ?? "", params.newName ?? ""));
+          this.audit.write({ action: "rename", fid: params.fid, path: params.newName, result: "ok", detail: "ui" });
+          new Notice(`已重命名为 ${params.newName}`);
+          break;
+        }
+        case "move": {
+          await this.policy.write(() => client.move(params.fid ?? "", params.toPid ?? "0"));
+          this.audit.write({ action: "move", fid: params.fid, path: params.toPid, result: "ok", detail: "ui" });
+          new Notice("已移动（目标目录 cid 见审计）");
+          break;
+        }
+        case "quarantine": {
+          // 二次闸门：删除类必须走隔离路由（和 dispatcher 同一策略）
+          const decision = decideDeletionRoute(params.name ?? "", params.size ?? 0);
+          if (decision.route === "direct_delete") {
+            throw new Error(`该文件属于白名单小垃圾，应使用「删除小垃圾」而非隔离：${decision.reason}`);
+          }
+          const dirName = decision.quarantineDir ?? quarantineDirName();
+          const quarantineCid = await this.ensureQuarantineDir(dirName);
+          await this.policy.write(() => client.move(params.fid ?? "", quarantineCid));
+          this.audit.write({
+            action: "quarantine",
+            fid: params.fid,
+            size: params.size,
+            path: `${dirName}/${params.name}`,
+            result: "ok",
+            detail: `ui: ${decision.reason}`,
+          });
+          new Notice(`已隔离到 ${dirName}/`);
+          break;
+        }
+        case "delete_small_garbage": {
+          const decision = decideDeletionRoute(params.name ?? "", params.size ?? 0);
+          if (decision.route !== "direct_delete") {
+            throw new Error(`拒绝直接删除：${decision.reason}。请改用隔离。`);
+          }
+          await this.policy.write(() => client.remove(params.fid ?? ""));
+          this.audit.write({
+            action: "delete_small_garbage",
+            fid: params.fid,
+            size: params.size,
+            path: params.name,
+            result: "ok",
+            detail: `ui: ${decision.reason}`,
+          });
+          new Notice(`已删除 ${params.name}（仍在回收站）`);
+          break;
+        }
+      }
+      // 写成功后整棵目录树重绘（侧栏自己调 render）
+      await this.refreshTreeView();
+    } catch (err) {
+      const msg = (err as Error).message;
+      this.audit.write({ action: `ui:${action}`, fid: params.fid, result: "failed", detail: msg });
+      new Notice(`❌ ${msg}`, 8000);
+      throw err;
+    }
+  }
+
+  /** 让侧栏重绘（写操作成功后刷新）。 */
+  async refreshTreeView(): Promise<void> {
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE_115)) {
+      const view = leaf.view as unknown as { render?: () => Promise<void> } | null;
+      if (view && typeof view.render === "function") {
+        await view.render();
+      }
+    }
   }
 
   /** 取得（必要时创建）隔离目录，返回其 cid */
