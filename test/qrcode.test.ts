@@ -116,6 +116,81 @@ describe("扫码登录", () => {
     expect(session.acwTc).toBe("ABC987");
   });
 
+  it("新格式：Cookie 走多条 Set-Cookie，响应体只有用户资料 —— 也要能拼出 Cookie", async () => {
+    const transport: Transport = async () => {
+      const payload = {
+        state: 1,
+        data: { user_id: 8312294, user_name: "myskygoogle", mobile: "", is_vip: 2107683384 },
+      };
+      return {
+        status: 200,
+        text: JSON.stringify(payload),
+        json: payload,
+        headers: {
+          "set-cookie":
+            "UID=8312294_A1_1795427124; Path=/; Domain=.115.com; HttpOnly, " +
+            "CID=307ba051fbf56d05969bb9e6aecd190b; Path=/; Domain=.115.com, " +
+            "SEID=c10d2df54349de7951; Path=/; Domain=.115.com; Expires=Wed, 21 Oct 2026 07:28:00 GMT, " +
+            "KID=f45c6cd60aa0adf0; Path=/; Domain=.115.com",
+        },
+      } as HttpResponse;
+    };
+    const cookie = await new QrLogin({ transport, app: "web" }).finish({
+      app: "web",
+      uid: "u",
+      time: 1,
+      sign: "s",
+      qrcode: "q",
+      scanUrl: "u",
+    });
+    expect(cookie).toContain("UID=8312294_A1_1795427124");
+    expect(cookie).toContain("CID=307ba051fbf56d05969bb9e6aecd190b");
+    expect(cookie).toContain("SEID=c10d2df54349de7951");
+    expect(cookie).toContain("KID=f45c6cd60aa0adf0");
+    // Expires 里的逗号不能把后面的 cookie 吃掉
+    expect(cookie).not.toContain("Expires");
+  });
+
+  it("两种都没给时报错，且把 Set-Cookie / data 字段原样带出（便于定位接口变更）", async () => {
+    const transport: Transport = async () => {
+      const payload = { state: 1, data: { user_id: 8312294, user_name: "myskygoogle" } };
+      return {
+        status: 200,
+        text: JSON.stringify(payload),
+        json: payload,
+        headers: { "set-cookie": "SOMETHING_ELSE=1; Path=/" },
+      } as HttpResponse;
+    };
+    const err = await new QrLogin({ transport, app: "web" })
+      .finish({ app: "web", uid: "u", time: 1, sign: "s", qrcode: "q", scanUrl: "u" })
+      .catch((e: Error) => e);
+    expect(String(err)).toContain("myskygoogle");
+    expect(String(err)).toContain("Set-Cookie");
+    expect(String(err)).toContain("SOMETHING_ELSE");
+  });
+
+  it("旧格式 data.cookie 仍然优先（向后兼容）", async () => {
+    const transport: Transport = async () => {
+      const payload = { state: 1, data: { cookie: "UID=1; SEID=2" } };
+      return {
+        status: 200,
+        text: JSON.stringify(payload),
+        json: payload,
+        headers: { "set-cookie": "KID=extra; Path=/" },
+      } as HttpResponse;
+    };
+    const cookie = await new QrLogin({ transport, app: "web" }).finish({
+      app: "web",
+      uid: "u",
+      time: 1,
+      sign: "s",
+      qrcode: "q",
+      scanUrl: "u",
+    });
+    expect(cookie).toContain("UID=1");
+    expect(cookie).toContain("SEID=2");
+  });
+
   it("二维码图片走 /api/1.0/{app}/1.0/qrcode?uid=，转成 data URI", async () => {
     const seen: string[] = [];
     const binaryTransport = async (url: string) => {

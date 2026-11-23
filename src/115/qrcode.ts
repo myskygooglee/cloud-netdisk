@@ -16,7 +16,7 @@
 
 import { requestUrl } from "obsidian";
 import { P115Error, classifyP115Error } from "./errors";
-import { HttpResponse, Transport, httpTransport, pickAcwTc } from "./client";
+import { cookiesFromSetCookie, HttpResponse, Transport, httpTransport, pickAcwTc } from "./client";
 import { describeEnvelopeError, isFailedEnvelope, rawStr } from "./types";
 import type { Raw115Envelope, Raw115Object } from "./types";
 
@@ -199,14 +199,38 @@ export class QrLogin {
     }
     const data = body.data;
     const payload = data !== null && typeof data === "object" ? (data as Raw115Object) : {};
-    const cookie = rawStr(payload.cookie);
+
+    // ① 老格式：响应体直接给 data.cookie（一整串）
+    const fromBody = rawStr(payload.cookie);
+
+    // ② 新格式（2026-11-23 起）：响应体只有用户资料，Cookie 走多条 Set-Cookie
+    const fromHeaders = cookiesFromSetCookie(res.headers?.["set-cookie"]);
+
+    // ③ 兜底：响应体里零散给了 UID / CID / SEID / KID 等字段（不同端实现不一）
+    const scattered: string[] = [];
+    for (const name of ["UID", "CID", "SEID", "KID"]) {
+      const v = rawStr(payload[name]) || rawStr(payload[name.toLowerCase()]);
+      if (v) scattered.push(`${name}=${v}`);
+    }
+    const fromFields = scattered.join("; ");
+
+    const cookie = [fromBody, fromHeaders, fromFields].filter(Boolean).join("; ");
     if (!cookie) {
-      // 这里以前会报「扫码成功但未返回 Cookie」，但真实原因多半是 state=0 的失败响应，
-      // 现在 isFailedEnvelope 会先拦下；走到这里说明确实是结构异常，把原始响应一起抛出来。
+      // 关键诊断：把 115 到底给了什么原样带出来，别再让用户猜
+      const user = rawStr(payload.user_name) || rawStr(payload.user_id) || "?";
+      const headerKeys = Object.keys(res.headers ?? {});
+      const rawSetCookie = res.headers?.["set-cookie"] ?? "（响应头里没有 Set-Cookie）";
+      const bodyKeys = Object.keys(payload).join(", ") || "（data 为空）";
       throw new P115Error(
         "unknown",
-        `未返回 Cookie（响应结构异常，请把这段发给开发者）：${JSON.stringify(body).slice(0, 300)}`,
-        JSON.stringify(body).slice(0, 300),
+        [
+          `115 返回了用户信息（${user}）但没有下发 Cookie。`,
+          `这通常是 115 登录接口变更，请把这整段发给开发者。`,
+          `响应头字段：${headerKeys.join(", ") || "（空）"}`,
+          `data 字段：${bodyKeys}`,
+          `Set-Cookie：${rawSetCookie.slice(0, 400)}`,
+        ].join("\n"),
+        JSON.stringify({ body: body, setCookie: rawSetCookie, headerKeys }).slice(0, 800),
       );
     }
     return cookie;

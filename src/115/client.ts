@@ -65,6 +65,48 @@ export function pickAcwTc(setCookie: string | undefined): string {
   return m ? m[1] : "";
 }
 
+/** 登录相关、需要从 Set-Cookie 里收集的 cookie 名（115 登录后下发的就是这几个）。 */
+const LOGIN_COOKIE_NAMES = ["UID", "CID", "SEID", "KID", "acw_tc", "PHPSESSID", "USERSESSIONID"];
+
+/**
+ * 从 `Set-Cookie` 响应头里抽出登录需要的 cookie，拼成 Cookie 请求头格式。
+ *
+ * 背景（2026-11-23 实测）：115 已把登录结果从响应体的 `data.cookie`
+ * 改成用多条 `Set-Cookie` 下发（响应体只剩 user_id / user_name 等资料）。
+ * 这里两种都兼容 —— 老格式仍走 `data.cookie`，新格式靠这个函数。
+ *
+ * 注意 Obsidian 的 `requestUrl` 把多条 Set-Cookie 合并进一个字符串，
+ * 可能是逗号分隔也可能是换行分隔，两种都处理；同时兼容 `Expires=Wed, 21 Oct ...`
+ * 这种值里自带逗号的属性（只在 `name=` 位置切分）。
+ */
+export function cookiesFromSetCookie(setCookie: string | undefined): string {
+  if (!setCookie) return "";
+  const found = new Map<string, string>();
+  // 只按「行首或分隔符之后紧跟 <NAME>=」切，避免被 Expires 里的逗号误伤
+  const re = /(?:^|[\n,;])\s*([A-Za-z_][A-Za-z0-9_]*)=([^;,\n]*)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(setCookie)) !== null) {
+    const name = m[1];
+    const value = m[2].trim();
+    if (!LOGIN_COOKIE_NAMES.some((n) => n.toLowerCase() === name.toLowerCase())) continue;
+    if (!value) continue;
+    found.set(name, value);
+  }
+  return Array.from(found.entries())
+    .map(([k, v]) => `${k}=${v}`)
+    .join("; ");
+}
+
+/** 响应里所有 cookie（含未列入白名单的），用于诊断输出。 */
+export function allCookiesFromSetCookie(setCookie: string | undefined): string[] {
+  if (!setCookie) return [];
+  const out: string[] = [];
+  const re = /(?:^|[\n,])\s*([A-Za-z_][A-Za-z0-9_]*)=([^;\n]*)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(setCookie)) !== null) out.push(`${m[1]}=${m[2]}`);
+  return out;
+}
+
 const WEB = "https://webapi.115.com";
 
 /**
