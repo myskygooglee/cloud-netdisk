@@ -1,13 +1,13 @@
 /* ---------- 侧边栏视图（M6） ---------- */
 
-.obsidian-115-view {
+.cloud-115-view {
   font-size: var(--font-ui-small);
   display: flex;
   flex-direction: column;
   height: 100%;
 }
 
-.obsidian-115-locked {
+.cloud-115-locked {
   padding: 10px 12px;
   border: 1px solid var(--background-modifier-error);
   border-radius: 8px;
@@ -17,21 +17,21 @@
   line-height: 1.5;
 }
 
-.obsidian-115-locked b {
+.cloud-115-locked b {
   color: var(--text-error);
 }
 
-.obsidian-115-header h4 {
+.cloud-115-header h4 {
   margin: 0 0 6px;
 }
 
-.obsidian-115-actions {
+.cloud-115-actions {
   display: flex;
   gap: 4px;
   margin-bottom: 6px;
 }
 
-.obsidian-115-icon-button {
+.cloud-115-icon-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -45,39 +45,39 @@
   color: var(--text-muted);
 }
 
-.obsidian-115-icon-button:hover {
+.cloud-115-icon-button:hover {
   background: var(--background-modifier-hover);
   color: var(--text-normal);
 }
 
-.obsidian-115-search input {
+.cloud-115-search input {
   width: 100%;
   margin-bottom: 6px;
 }
 
-.obsidian-115-crumbs {
+.cloud-115-crumbs {
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
   margin-bottom: 4px;
   word-break: break-all;
 }
 
-.obsidian-115-crumb {
+.cloud-115-crumb {
   cursor: pointer;
   color: var(--text-accent);
 }
 
-.obsidian-115-crumb:hover {
+.cloud-115-crumb:hover {
   text-decoration: underline;
 }
 
-.obsidian-115-quota {
+.cloud-115-quota {
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
   margin-bottom: 8px;
 }
 
-.obsidian-115-bar {
+.cloud-115-bar {
   height: 4px;
   margin-top: 3px;
   background: var(--background-modifier-border);
@@ -85,18 +85,18 @@
   overflow: hidden;
 }
 
-.obsidian-115-bar-fill {
+.cloud-115-bar-fill {
   height: 100%;
   background: var(--interactive-accent);
 }
 
-.obsidian-115-body {
+.cloud-115-body {
   overflow-y: auto;
   flex: 1;
   min-height: 0;
 }
 
-.obsidian-115-row {
+.cloud-115-row {
   display: flex;
   align-items: baseline;
   gap: 4px;
@@ -107,11 +107,11 @@
   overflow: hidden;
 }
 
-.obsidian-115-row:hover {
+.cloud-115-row:hover {
   background: var(--background-modifier-hover);
 }
 
-.obsidian-115-twisty {
+.cloud-115-twisty {
   width: 12px;
   flex: 0 0 12px;
   color: var(--text-faint);
@@ -119,24 +119,24 @@
   user-select: none;
 }
 
-.obsidian-115-ico {
+.cloud-115-ico {
   flex: 0 0 auto;
 }
 
-.obsidian-115-name {
+.cloud-115-name {
   flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.obsidian-115-meta {
+.cloud-115-meta {
   flex: 0 0 auto;
   color: var(--text-faint);
   font-size: var(--font-ui-smaller);
   padding-left: 6px;
 }
 
-.obsidian-115-enter {
+.cloud-115-enter {
   flex: 0 0 auto;
   padding: 0 4px;
   height: 18px;
@@ -148,11 +148,11 @@
   cursor: pointer;
 }
 
-.obsidian-115-enter:hover {
+.cloud-115-enter:hover {
   color: var(--text-normal);
 }
 
-.obsidian-115-detail {
+.cloud-115-detail {
   margin: 4px 0 8px 20px;
   padding: 6px 8px;
   border-left: 2px solid var(--interactive-accent);
@@ -160,17 +160,17 @@
   border-radius: 4px;
 }
 
-.obsidian-115-detail pre {
+.cloud-115-detail pre {
   margin: 0 0 6px;
   white-space: pre-wrap;
   word-break: break-all;
   font-size: var(--font-ui-smaller);
 }
 
-.obsidian-115-tip,
-.obsidian-115-more,
-.obsidian-115-empty,
-.obsidian-115-loading {
+.cloud-115-tip,
+.cloud-115-more,
+.cloud-115-empty,
+.cloud-115-loading {
   color: var(--text-muted);
   font-size: var(--font-ui-smaller);
   padding: 2px 0;
@@ -178,27 +178,27 @@
 
 /* ---------- 设置页 ---------- */
 
-.obsidian-115-health.is-ok {
+.cloud-115-health.is-ok {
   color: var(--text-success, #2e7d32);
 }
 
-.obsidian-115-health.is-bad {
+.cloud-115-health.is-bad {
   color: var(--text-error, #c62828);
 }
 
-.obsidian-115-list {
+.cloud-115-list {
   margin-top: 8px;
   font-size: var(--font-ui-small);
 }
 
-.obsidian-115-qr {
+.cloud-115-qr {
   margin: 8px 0 12px;
   padding: 8px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
 }
 
-.obsidian-115-qr-image {
+.cloud-115-qr-image {
   display: block;
   width: 220px;
   height: 220px;
@@ -207,13 +207,13 @@
   background: #fff;
 }
 
-.obsidian-115-qr-status {
+.cloud-115-qr-status {
   font-size: var(--font-ui-small);
   color: var(--text-muted);
   text-align: center;
 }
 
-.obsidian-115-guide {
+.cloud-115-guide {
   margin: 12px 0;
   padding: 10px 12px;
   border: 1px solid var(--background-modifier-border);
@@ -221,7 +221,7 @@
   background: var(--background-secondary);
 }
 
-.obsidian-115-guide-text {
+.cloud-115-guide-text {
   font-size: var(--font-ui-small);
   white-space: pre-wrap;
   line-height: 1.5;

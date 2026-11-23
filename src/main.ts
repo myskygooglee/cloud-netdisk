@@ -7,7 +7,7 @@ import { checkPlanFreshness } from "./policy/planFresh";
 import { CrossProcessLock } from "./policy/crossLock";
 import { ToolDispatcher } from "./mcp/dispatch";
 import { McpServerInfo, startMcpServer } from "./mcp/server";
-import { DEFAULT_SETTINGS, Obsidian115Settings, Obsidian115SettingTab } from "./settings";
+import { DEFAULT_SETTINGS, Cloud115Settings, Cloud115SettingTab } from "./settings";
 import { TreeView, VIEW_TYPE_115 } from "./ui/treeView";
 import { AGENT_GUIDE } from "./mcp/guidance";
 
@@ -31,8 +31,8 @@ async function copyToClipboard(text: string): Promise<boolean> {
   }
 }
 
-export default class Obsidian115Plugin extends Plugin {
-  settings: Obsidian115Settings = { ...DEFAULT_SETTINGS };
+export default class Cloud115Plugin extends Plugin {
+  settings: Cloud115Settings = { ...DEFAULT_SETTINGS };
   auth!: AuthManager;
   policy!: PolicyEngine;
   audit!: AuditLog;
@@ -99,7 +99,7 @@ export default class Obsidian115Plugin extends Plugin {
       },
     });
 
-    this.addSettingTab(new Obsidian115SettingTab(this.app, this));
+    this.addSettingTab(new Cloud115SettingTab(this.app, this));
 
     if (this.settings.enableMcp) {
       await this.restartMcp();
@@ -134,7 +134,7 @@ export default class Obsidian115Plugin extends Plugin {
         dispatcher: this.dispatcher,
         port: this.settings.mcpPort,
         token: this.settings.mcpToken,
-        onLog: (msg) => console.log("[obsidian-115]", msg),
+        onLog: (msg) => console.log("[cloud-115]", msg),
       });
       new Notice(`115 MCP 已启动：${this.mcp.url}`);
     } catch (err) {
@@ -162,7 +162,7 @@ export default class Obsidian115Plugin extends Plugin {
     if (!this.mcp) return "";
     const config = {
       mcpServers: {
-        "obsidian-115": {
+        "cloud-115": {
           url: this.mcp.url,
           headers: {
             "x-115-token": this.settings.mcpToken,

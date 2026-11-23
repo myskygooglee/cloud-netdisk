@@ -14,7 +14,7 @@ let dir = "";
 const FIXED_NOW = 1_800_000_000_000; // 毫秒
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "obsidian115-lock-"));
+  dir = mkdtempSync(join(tmpdir(), "Cloud115-lock-"));
 });
 
 afterEach(() => {

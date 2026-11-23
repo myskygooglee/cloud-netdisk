@@ -10,9 +10,9 @@
 
 import { ItemView, Notice, setIcon, WorkspaceLeaf } from "obsidian";
 import { formatBytes, P115Entry } from "../115/types";
-import type Obsidian115Plugin from "../main";
+import type Cloud115Plugin from "../main";
 
-export const VIEW_TYPE_115 = "obsidian-115-tree";
+export const VIEW_TYPE_115 = "cloud-115-tree";
 
 interface Crumb {
   cid: string;
@@ -27,7 +27,7 @@ export class TreeView extends ItemView {
   private searchResults: P115Entry[] | null = null;
   private quotaText = "";
 
-  constructor(leaf: WorkspaceLeaf, private readonly plugin: Obsidian115Plugin) {
+  constructor(leaf: WorkspaceLeaf, private readonly plugin: Cloud115Plugin) {
     super(leaf);
   }
 
@@ -55,12 +55,12 @@ export class TreeView extends ItemView {
   async render(): Promise<void> {
     const root = this.contentEl;
     root.empty();
-    root.addClass("obsidian-115-view");
+    root.addClass("cloud-115-view");
 
     // 跨进程锁：批处理在跑时侧栏也不打 115（AGENTS：禁止并发）
     const lock = this.plugin.crossLock.status();
     if (lock.locked) {
-      const warn = root.createDiv({ cls: "obsidian-115-locked" });
+      const warn = root.createDiv({ cls: "cloud-115-locked" });
       warn.createEl("b", { text: "⛔ 115 批处理正在运行" });
       warn.createDiv({ text: lock.detail });
       warn.createDiv({ text: "为避免并发撞风控，插件暂停所有 115 请求。批处理结束后点刷新。" });
@@ -72,7 +72,7 @@ export class TreeView extends ItemView {
     this.renderBreadcrumb(root);
     this.renderQuota(root);
 
-    const body = root.createDiv({ cls: "obsidian-115-body" });
+    const body = root.createDiv({ cls: "cloud-115-body" });
     if (this.query) {
       await this.renderSearch(body);
     } else {
@@ -85,10 +85,10 @@ export class TreeView extends ItemView {
   }
 
   private renderHeader(root: HTMLElement): void {
-    const head = root.createDiv({ cls: "obsidian-115-header" });
+    const head = root.createDiv({ cls: "cloud-115-header" });
     head.createEl("h4", { text: "115 网盘" });
 
-    const actions = head.createDiv({ cls: "obsidian-115-actions" });
+    const actions = head.createDiv({ cls: "cloud-115-actions" });
     this.iconButton(actions, "refresh-cw", "刷新", () => void this.render());
     this.iconButton(actions, "chevron-up", "上一级", () => {
       if (this.crumbs.length <= 1) return;
@@ -104,7 +104,7 @@ export class TreeView extends ItemView {
       void this.render();
     });
 
-    const searchRow = head.createDiv({ cls: "obsidian-115-search" });
+    const searchRow = head.createDiv({ cls: "cloud-115-search" });
     const input = searchRow.createEl("input", {
       type: "search",
       placeholder: "搜索名称（回车）",
@@ -120,7 +120,7 @@ export class TreeView extends ItemView {
   }
 
   private iconButton(parent: HTMLElement, icon: string, title: string, onClick: () => void): HTMLElement {
-    const btn = parent.createEl("button", { cls: "obsidian-115-icon-button" });
+    const btn = parent.createEl("button", { cls: "cloud-115-icon-button" });
     btn.setAttribute("aria-label", title);
     btn.setAttribute("title", title);
     setIcon(btn, icon);
@@ -132,10 +132,10 @@ export class TreeView extends ItemView {
   }
 
   private renderBreadcrumb(root: HTMLElement): void {
-    const bar = root.createDiv({ cls: "obsidian-115-crumbs" });
+    const bar = root.createDiv({ cls: "cloud-115-crumbs" });
     this.crumbs.forEach((c, idx) => {
-      if (idx > 0) bar.createSpan({ text: " / ", cls: "obsidian-115-sep" });
-      const a = bar.createEl("a", { text: c.name, cls: "obsidian-115-crumb" });
+      if (idx > 0) bar.createSpan({ text: " / ", cls: "cloud-115-sep" });
+      const a = bar.createEl("a", { text: c.name, cls: "cloud-115-crumb" });
       a.addEventListener("click", () => {
         this.crumbs = this.crumbs.slice(0, idx + 1);
         this.query = "";
@@ -146,7 +146,7 @@ export class TreeView extends ItemView {
   }
 
   private renderQuota(root: HTMLElement): void {
-    const box = root.createDiv({ cls: "obsidian-115-quota" });
+    const box = root.createDiv({ cls: "cloud-115-quota" });
     if (!this.quotaText) {
       box.setText("容量读取中…");
       void this.loadQuota(box);
@@ -162,8 +162,8 @@ export class TreeView extends ItemView {
       this.quotaText = `已用 ${formatBytes(q.used)} / ${formatBytes(q.total)}（${pct.toFixed(1)}%）`;
       box.empty();
       box.setText(this.quotaText);
-      const bar = box.createDiv({ cls: "obsidian-115-bar" });
-      const fill = bar.createDiv({ cls: "obsidian-115-bar-fill" });
+      const bar = box.createDiv({ cls: "cloud-115-bar" });
+      const fill = bar.createDiv({ cls: "cloud-115-bar-fill" });
       fill.setAttribute("style", `width:${Math.min(100, pct).toFixed(2)}%`);
     } catch (err) {
       box.setText(`容量读取失败：${(err as Error).message}`);
@@ -171,7 +171,7 @@ export class TreeView extends ItemView {
   }
 
   private async renderSearch(body: HTMLElement): Promise<void> {
-    const tip = body.createDiv({ cls: "obsidian-115-tip" });
+    const tip = body.createDiv({ cls: "cloud-115-tip" });
     tip.setText(`搜索「${this.query}」`);
     if (!this.searchResults) {
       tip.setText(`搜索「${this.query}」中…`);
@@ -186,7 +186,7 @@ export class TreeView extends ItemView {
       tip.setText(`搜索「${this.query}」：${this.searchResults.length} 条`);
     }
     if (!this.searchResults.length) {
-      body.createDiv({ cls: "obsidian-115-empty", text: "没有匹配的条目" });
+      body.createDiv({ cls: "cloud-115-empty", text: "没有匹配的条目" });
       return;
     }
     for (const entry of this.searchResults) this.renderRow(body, entry, 0, false);
@@ -194,9 +194,9 @@ export class TreeView extends ItemView {
 
   /** 渲染某一层的条目；`depth` 用于缩进。 */
   private async renderLevel(parent: HTMLElement, cid: string, depth: number): Promise<void> {
-    const holder = parent.createDiv({ cls: "obsidian-115-level" });
+    const holder = parent.createDiv({ cls: "cloud-115-level" });
     holder.setAttribute("data-cid", cid);
-    const loading = holder.createDiv({ cls: "obsidian-115-loading", text: "加载中…" });
+    const loading = holder.createDiv({ cls: "cloud-115-loading", text: "加载中…" });
     let entries: P115Entry[];
     try {
       const res = await this.plugin.policy.read(() => this.plugin.auth.getClient().listDir(cid, 0, 500));
@@ -204,7 +204,7 @@ export class TreeView extends ItemView {
       loading.remove();
       if (res.total && res.total > entries.length) {
         holder.createDiv({
-          cls: "obsidian-115-more",
+          cls: "cloud-115-more",
           text: `该目录共 ${res.total} 项，仅显示前 ${entries.length} 项`,
         });
       }
@@ -213,7 +213,7 @@ export class TreeView extends ItemView {
       return;
     }
     if (!entries.length) {
-      holder.createDiv({ cls: "obsidian-115-empty", text: "（空目录）" });
+      holder.createDiv({ cls: "cloud-115-empty", text: "（空目录）" });
       return;
     }
     for (const entry of entries) {
@@ -222,16 +222,16 @@ export class TreeView extends ItemView {
   }
 
   private async renderRow(parent: HTMLElement, entry: P115Entry, depth: number, _allowExpand: boolean): Promise<void> {
-    const row = parent.createDiv({ cls: "obsidian-115-row" });
+    const row = parent.createDiv({ cls: "cloud-115-row" });
     row.setAttribute("style", `padding-left:${depth * 14}px`);
 
-    const twisty = row.createSpan({ cls: "obsidian-115-twisty" });
+    const twisty = row.createSpan({ cls: "cloud-115-twisty" });
     const isExpanded = this.expanded.has(entry.id);
     twisty.setText(entry.isDir ? (isExpanded ? "▾" : "▸") : " ");
-    const icon = row.createSpan({ cls: "obsidian-115-ico", text: entry.isDir ? "📁" : "📄" });
-    const label = row.createSpan({ cls: "obsidian-115-name", text: entry.name });
+    const icon = row.createSpan({ cls: "cloud-115-ico", text: entry.isDir ? "📁" : "📄" });
+    const label = row.createSpan({ cls: "cloud-115-name", text: entry.name });
     const meta = row.createSpan({
-      cls: "obsidian-115-meta",
+      cls: "cloud-115-meta",
       text: entry.isDir ? "" : formatBytes(entry.size),
     });
     if (entry.isDir) icon.setAttribute("title", `cid=${entry.id}`);
@@ -243,7 +243,7 @@ export class TreeView extends ItemView {
     }
 
     // 目录：右侧「进入」按钮下钻；点行其它位置 = 展开/收起
-    const enterBtn = row.createEl("button", { cls: "obsidian-115-enter", text: "↗" });
+    const enterBtn = row.createEl("button", { cls: "cloud-115-enter", text: "↗" });
     enterBtn.setAttribute("title", "进入此目录");
     enterBtn.addEventListener("click", (ev) => {
       ev.stopPropagation();
@@ -253,7 +253,7 @@ export class TreeView extends ItemView {
       void this.render();
     });
 
-    const children = parent.createDiv({ cls: "obsidian-115-children" });
+    const children = parent.createDiv({ cls: "cloud-115-children" });
     if (isExpanded) await this.renderLevel(children, entry.id, depth + 1);
 
     row.addEventListener("click", async () => {
@@ -270,9 +270,9 @@ export class TreeView extends ItemView {
   }
 
   private async showDetail(parent: HTMLElement, entry: P115Entry): Promise<void> {
-    const old = parent.querySelector(".obsidian-115-detail");
+    const old = parent.querySelector(".cloud-115-detail");
     old?.remove();
-    const box = parent.createDiv({ cls: "obsidian-115-detail" });
+    const box = parent.createDiv({ cls: "cloud-115-detail" });
     box.setText(`${entry.name} · 读取元数据…`);
     try {
       const full = await this.plugin.policy.read(() => this.plugin.auth.getClient().stat(entry.fid ?? entry.id));

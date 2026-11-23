@@ -2,9 +2,9 @@ import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import { QrLogin } from "./115/qrcode";
 import { READ_ONLY_BANNER, WRITE_MODE_BANNER } from "./mcp/guidance";
 import { CrossProcessLock } from "./policy/crossLock";
-import type Obsidian115Plugin from "./main";
+import type Cloud115Plugin from "./main";
 
-export interface Obsidian115Settings {
+export interface Cloud115Settings {
   /** 115 Cookie 字符串 */
   cookie: string;
   /** MCP 端口（0 = 自动） */
@@ -35,7 +35,7 @@ export interface Obsidian115Settings {
   crossLockDir: string;
 }
 
-export const DEFAULT_SETTINGS: Obsidian115Settings = {
+export const DEFAULT_SETTINGS: Cloud115Settings = {
   cookie: "",
   mcpPort: 7300,
   enableMcp: true,
@@ -52,8 +52,8 @@ export const DEFAULT_SETTINGS: Obsidian115Settings = {
   crossLockDir: "D:\\115-MCP-Server\\state",
 };
 
-export class Obsidian115SettingTab extends PluginSettingTab {
-  constructor(app: App, private readonly plugin: Obsidian115Plugin) {
+export class Cloud115SettingTab extends PluginSettingTab {
+  constructor(app: App, private readonly plugin: Cloud115Plugin) {
     super(app, plugin);
   }
 
@@ -63,12 +63,12 @@ export class Obsidian115SettingTab extends PluginSettingTab {
    */
   private async runQrLogin(box: HTMLElement): Promise<void> {
     box.empty();
-    const status = box.createDiv({ cls: "obsidian-115-qr-status" });
+    const status = box.createDiv({ cls: "cloud-115-qr-status" });
     status.setText("正在向 115 请求二维码…");
     try {
       const qr = new QrLogin({ app: "web" });
       const session = await qr.start();
-      const img = box.createEl("img", { cls: "obsidian-115-qr-image" });
+      const img = box.createEl("img", { cls: "cloud-115-qr-image" });
       img.setAttribute("src", session.qrcode);
       img.setAttribute("alt", "115 登录二维码");
       const link = box.createEl("a", { href: session.scanUrl, text: "在 115 App 中打开此链接" });
@@ -134,7 +134,7 @@ export class Obsidian115SettingTab extends PluginSettingTab {
         }),
       );
 
-    const qrBox = containerEl.createDiv({ cls: "obsidian-115-qr" });
+    const qrBox = containerEl.createDiv({ cls: "cloud-115-qr" });
     new Setting(containerEl)
       .setName("扫码登录")
       .setDesc("用 115 手机 App 扫一扫即可，插件会自动抓取并保存 Cookie（通道固定为 web，115 App 可直接扫）。")
@@ -203,10 +203,10 @@ export class Obsidian115SettingTab extends PluginSettingTab {
       );
 
     // ------------------------------------------------ 使用指引（引导文案）
-    const guideBox = containerEl.createDiv({ cls: "obsidian-115-guide" });
+    const guideBox = containerEl.createDiv({ cls: "cloud-115-guide" });
     const guideTitle = guideBox.createEl("h4", { text: "使用指引" });
     guideTitle.setAttribute("style", "margin-bottom:6px");
-    const guideText = guideBox.createEl("div", { cls: "obsidian-115-guide-text" });
+    const guideText = guideBox.createEl("div", { cls: "cloud-115-guide-text" });
     guideText.setText(this.plugin.settings.enableWriteTools ? WRITE_MODE_BANNER : READ_ONLY_BANNER);
     new Setting(containerEl)
       .setName("复制 agent 使用指引")

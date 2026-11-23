@@ -11,7 +11,7 @@ import { checkPlanFreshness } from "../src/policy/planFresh";
 let dir = "";
 
 beforeEach(() => {
-  dir = mkdtempSync(join(tmpdir(), "obsidian115-plan-"));
+  dir = mkdtempSync(join(tmpdir(), "Cloud115-plan-"));
 });
 
 function touch(name: string, ageHours: number) {

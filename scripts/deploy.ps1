@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 
 $Repo = Split-Path -Parent $PSScriptRoot
 $Vault = "D:\Books"
-$Dest = Join-Path $Vault ".obsidian\plugins\obsidian-115"
+$Dest = Join-Path $Vault ".obsidian\plugins\cloud-115"
 
 Write-Host "[1/3] 构建…" -ForegroundColor Cyan
 Push-Location $Repo
@@ -25,4 +25,4 @@ if (Test-Path (Join-Path $Repo "dist\main.js.map")) {
 
 Write-Host "[3/3] 提示…" -ForegroundColor Cyan
 Write-Host "已部署到 $Dest"
-Write-Host "接下来：Obsidian 设置 → 第三方插件 → 重新加载 obsidian-115（或重启 Obsidian）"
+Write-Host "接下来：Obsidian 设置 → 第三方插件 → 重新加载 cloud-115（或重启 Obsidian）"
