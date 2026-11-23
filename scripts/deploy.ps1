@@ -2,7 +2,17 @@
 $ErrorActionPreference = "Stop"
 
 $Repo = Split-Path -Parent $PSScriptRoot
-$Vault = "D:\Books"
+
+# vault 路径：可用 -Vault 参数覆盖；默认取本机上已知的库
+$VaultArg = $null
+if ($args -contains "-Vault") { $VaultArg = $args[($args.IndexOf("-Vault") + 1)] }
+if (-not $VaultArg) {
+    $known = @("F:\[ob]myskygooglee", "F:\[ob]LR-working", "D:\Books")
+    $VaultArg = $known | Where-Object { Test-Path (Join-Path $_ ".obsidian") } | Select-Object -First 1
+}
+if (-not $VaultArg) { throw "vault not found; pass -Vault <path>" }
+
+$Vault = $VaultArg
 $Dest = Join-Path $Vault ".obsidian\plugins\cloud-netdisk"
 
 Write-Host "[1/3] 构建…" -ForegroundColor Cyan

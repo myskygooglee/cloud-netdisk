@@ -1,5 +1,6 @@
 import { Notice, Plugin } from "obsidian";
 import { randomBytes } from "crypto";
+import { join } from "path";
 import { AuthManager } from "./115/auth";
 import { AuditLog } from "./policy/audit";
 import { PolicyEngine } from "./policy/engine";
@@ -11,6 +12,7 @@ import { DEFAULT_SETTINGS, Cloud115Settings, Cloud115SettingTab } from "./settin
 import { TreeView, VIEW_TYPE_115 } from "./ui/treeView";
 import { AGENT_GUIDE } from "./mcp/guidance";
 import { BackupHandle, describeProgress, resolvePath, startVaultBackup } from "./backup/vaultBackup";
+import { detectServerPaths, isForeignServerPath, pathExists } from "./util/paths";
 
 /** 剪贴板复制（优先 navigator.clipboard，失败时退回 DOM 复制）。 */
 async function copyToClipboard(text: string): Promise<boolean> {
@@ -67,7 +69,10 @@ export default class Cloud115Plugin extends Plugin {
     });
 
     // 审计日志写在插件自己的数据目录（vault 内但属插件目录，不污染笔记）
-    this.audit = new AuditLog(`${this.manifest.dir}/data`);
+    // 注意：manifest.dir 是**相对**路径（".obsidian/plugins/cloud-netdisk"），
+    // 而进程 cwd 不保证是 vault 根 —— 2026-11-23 实测因此把日志写到了
+    // 错误位置，审计账本一直是空的。这里拼出绝对路径。
+    this.audit = new AuditLog(this.pluginDataDir());
 
     // 跨进程 115 锁：与 D:\115-MCP-Server\scripts\_shared_115_lock.py 共用同一对文件
     this.crossLock = new CrossProcessLock({
@@ -131,6 +136,56 @@ export default class Cloud115Plugin extends Plugin {
   async loadSettings(): Promise<void> {
     const saved = (await this.loadData()) as Partial<Cloud115Settings> | null;
     this.settings = { ...DEFAULT_SETTINGS, ...saved };
+    this.migrateStalePaths();
+  }
+
+  /**
+   * 迁移失效的路径设置。
+   *
+   * 2026-11-23 调试发现：data.json 里存着 `D:\115-MCP-Server\...`，
+   * 而这台机器上 Python 侧实际在 `E:\115-MCP-Server\`。
+   * 由于 loadData 的值会覆盖默认值，这些"看着正常、实际全错"的路径会一直生效。
+   * 这里做一次自愈：**旧路径不存在 + 探测到的新路径存在 ⇒ 换成新路径**。
+   */
+  private migrateStalePaths(): void {
+    const detected = detectServerPaths();
+    if (!detected.root) return;
+    const swap: Array<[keyof Cloud115Settings, string]> = [
+      ["crossLockDir", detected.lockDir],
+      ["stateDir", detected.stateDir],
+      ["backupScriptPath", detected.backupScript],
+      ["backupPythonPath", detected.python],
+    ];
+    let changed = false;
+    for (const [key, fresh] of swap) {
+      const cur = String(this.settings[key] ?? "");
+      if (this.isForeignServerPath(cur, detected.root)) {
+        (this.settings as unknown as Record<string, unknown>)[key] = fresh;
+        changed = true;
+      } else if (!cur || (!pathExists(cur) && pathExists(fresh))) {
+        (this.settings as unknown as Record<string, unknown>)[key] = fresh;
+        changed = true;
+      }
+    }
+    this.settings.detectedServerRoot = detected.root;
+    if (changed) {
+      console.debug("[cloud-netdisk] 已自动迁移失效的 Python 侧路径到", detected.root);
+      void this.saveSettings();
+    }
+  }
+
+  /**
+   * 判断某个路径是不是**另一套** 115-MCP-Server 根目录下的路径。
+   *
+   * 2026-11-23 调试踩到：D:\115-MCP-Server\state 恰好存在（只留了一个
+   * 115.plugin_activity.json），于是"路径不存在 ⇒ 迁移"这条规则不触发，
+   * 插件继续往 D:\ 写活动标记，而 Python 侧已经改用 E:\ —— 两边读的不是
+   * 同一把锁，跨进程互斥直接失效。
+   *
+   * 判据：路径里含有 115-MCP-Server，但根目录不是当前探测到的那一套。
+   */
+  private isForeignServerPath(p: string, root: string): boolean {
+    return isForeignServerPath(p, root);
   }
 
   async saveSettings(): Promise<void> {
@@ -299,6 +354,13 @@ export default class Cloud115Plugin extends Plugin {
       }
     }
     return null;
+  }
+
+  /** 插件自己的数据目录绝对路径（审计日志等写在这里）。 */
+  private pluginDataDir(): string {
+    const base = this.getVaultPath();
+    const rel = `${this.manifest.dir}/data`;
+    return base ? join(base, rel) : rel;
   }
 
   cancelVaultBackup(): void {

@@ -108,7 +108,7 @@ export function startVaultBackup(opts: BackupOptions, onProgress: (p: BackupProg
   const proc = spawner(python, args, {
     cwd: dirname(opts.scriptPath),
     windowsHide: true,
-  }) as ChildProcessWithoutNullStreams;
+  });
 
   let buffer = "";
   proc.stdout.setEncoding("utf-8");

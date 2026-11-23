@@ -3,7 +3,7 @@
  * AGENTS.md 第三节要求盘点/操作结果落盘，字段至少包含 fid / size / sha1 / 完整路径。
  */
 
-import { appendFileSync, readFileSync } from "fs";
+import { appendFileSync, mkdirSync, readFileSync } from "fs";
 import { join } from "path";
 
 export interface AuditRecord {
@@ -29,6 +29,11 @@ export class AuditLog {
   write(rec: Omit<AuditRecord, "ts"> & { ts?: string }): AuditRecord {
     const full: AuditRecord = { ts: rec.ts ?? new Date().toISOString(), ...rec };
     try {
+      // The log directory may not exist yet (fresh install / cleaned up).
+      // 2026-11-23: the directory was missing, appendFileSync threw, the
+      // catch swallowed it, and the audit log stayed empty the whole time
+      // — an audit trail that never records anything is worse than none.
+      mkdirSync(this.dir, { recursive: true });
       appendFileSync(this.file, JSON.stringify(full) + "\n", "utf-8");
     } catch {
       // 审计写入失败不能影响主流程

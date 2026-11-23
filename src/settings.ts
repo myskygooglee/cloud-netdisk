@@ -2,6 +2,7 @@ import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import { QrLogin } from "./115/qrcode";
 import { READ_ONLY_BANNER, WRITE_MODE_BANNER } from "./mcp/guidance";
 import { CrossProcessLock } from "./policy/crossLock";
+import { detectServerPaths, pathExists } from "./util/paths";
 import type Cloud115Plugin from "./main";
 
 export interface Cloud115Settings {
@@ -49,32 +50,39 @@ export interface Cloud115Settings {
   backupNameTemplate: string;
   /** 一键备份：本地临时 zip 目录（空 = 用脚本默认的 115-MCP-Server\_tmp） */
   backupTmpDir: string;
+  /** 上次探测到的 115-MCP-Server 根目录（仅用于设置页展示） */
+  detectedServerRoot?: string;
 }
 
-export const DEFAULT_SETTINGS: Cloud115Settings = {
-  cookie: "",
-  mcpPort: 7300,
-  enableMcp: true,
-  minReadIntervalMs: 1000,
-  minWriteIntervalMs: 3000,
-  writeCooldownEvery: 2,
-  writeCooldownSeconds: 60,
-  maxWritesBeforeConfirm: 3,
-  quarantineRootCid: "",
-  mcpToken: "",
-  enableWriteTools: false,
-  stateDir: "D:\\115-MCP-Server\\state\\inventory_full_20261123",
-  planMaxAgeHours: 48,
-  crossLockDir: "D:\\115-MCP-Server\\state",
-  backupScriptPath: "D:\\115-MCP-Server\\scripts\\vault_backup_115.py",
-  backupPythonPath: "",
-  backupRootDir: "[00]obsidian 备份  2026.11.20",
-  backupSubdirTemplate: "{vault} 参考资料",
-  backupKeep: 3,
-  backupIncludeSecrets: false,
-  backupNameTemplate: "",
-  backupTmpDir: "",
-};
+export const DEFAULT_SETTINGS: Cloud115Settings = (() => {
+  // Python 侧路径**运行时探测**，不再硬编码盘符
+  // （2026-11-23 调试发现：硬编码 D:\115-MCP-Server 在实际机器上整片落空）
+  const p = detectServerPaths();
+  return {
+    cookie: "",
+    mcpPort: 7300,
+    enableMcp: true,
+    minReadIntervalMs: 1000,
+    minWriteIntervalMs: 3000,
+    writeCooldownEvery: 2,
+    writeCooldownSeconds: 60,
+    maxWritesBeforeConfirm: 3,
+    quarantineRootCid: "",
+    mcpToken: "",
+    enableWriteTools: false,
+    stateDir: p.stateDir,
+    planMaxAgeHours: 48,
+    crossLockDir: p.lockDir,
+    backupScriptPath: p.backupScript,
+    backupPythonPath: p.python,
+    backupRootDir: "[00]obsidian 备份  2026.11.20",
+    backupSubdirTemplate: "{vault} 参考资料",
+    backupKeep: 3,
+    backupIncludeSecrets: false,
+    backupNameTemplate: "",
+    backupTmpDir: "",
+  };
+})();
 
 export class Cloud115SettingTab extends PluginSettingTab {
   constructor(app: App, private readonly plugin: Cloud115Plugin) {
@@ -424,6 +432,48 @@ export class Cloud115SettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl).setName("跨进程互斥（与 Python 批处理）").setHeading();
+
+    // ------------------------------------------------ 路径自检
+    new Setting(containerEl).setName("路径自检").setHeading();
+
+    const detected = detectServerPaths();
+    const rows: Array<[string, string]> = [
+      ["115-MCP-Server 根目录", detected.root || "（未探测到，请设环境变量 P115_MCP_SERVER_HOME）"],
+      ["跨进程锁目录", this.plugin.settings.crossLockDir],
+      ["清单目录", this.plugin.settings.stateDir],
+      ["备份脚本", this.plugin.settings.backupScriptPath],
+      ["Python 解释器", this.plugin.settings.backupPythonPath || detected.python],
+    ];
+    for (const [label, p] of rows) {
+      const okp = pathExists(p);
+      new Setting(containerEl)
+        .setName(label)
+        .setDesc(okp ? `✅ ${p}` : `❌ 路径不存在：${p || "（空）"}`);
+    }
+    new Setting(containerEl)
+      .setName("按探测结果重填路径")
+      .setDesc("把上面 4 个路径一次性改成当前机器上真实存在的路径（探测不到就保持原值）。")
+      .addButton((btn) =>
+        btn
+          .setButtonText("重填")
+          .setWarning()
+          .onClick(async () => {
+            if (!detected.root) {
+              new Notice("❌ 未探测到 115-MCP-Server，请手动填写各路径");
+              return;
+            }
+            this.plugin.settings.crossLockDir = detected.lockDir;
+            this.plugin.settings.stateDir = detected.stateDir;
+            this.plugin.settings.backupScriptPath = detected.backupScript;
+            this.plugin.settings.backupPythonPath = detected.python;
+            await this.plugin.saveSettings();
+            this.plugin.crossLock = new CrossProcessLock({
+              dir: this.plugin.settings.crossLockDir || undefined,
+            });
+            new Notice("✅ 已按探测结果重填路径");
+            this.display();
+          }),
+      );
 
     const lockStatus = this.plugin.crossLock.status();
     new Setting(containerEl)

@@ -27,7 +27,13 @@ function makeDispatcher(opts: { writeEnabled: boolean }) {
     read: async (fn: () => Promise<unknown>) => fn(),
     write: async (fn: () => Promise<unknown>) => fn(),
   } as any;
-  const audit = { write: () => ({}) } as any;
+  const auditRecords: Array<Record<string, unknown>> = [];
+  const audit = {
+    write: (rec: Record<string, unknown>) => {
+      auditRecords.push(rec);
+      return rec;
+    },
+  } as any;
   const auth = { getClient: () => fakeClient } as any;
   const dispatcher = new ToolDispatcher({
     auth,
@@ -36,16 +42,20 @@ function makeDispatcher(opts: { writeEnabled: boolean }) {
     ensureQuarantineDir: async () => "999",
     isWriteEnabled: () => opts.writeEnabled,
   });
-  return { dispatcher, calls };
+  return { dispatcher, calls, auditRecords };
 }
 
 describe("只读闸门", () => {
   it("只读模式下写工具被拒绝，且不会真的调用 115", async () => {
-    const { dispatcher, calls } = makeDispatcher({ writeEnabled: false });
+    const { dispatcher, calls, auditRecords } = makeDispatcher({ writeEnabled: false });
     const res = await dispatcher.call("mkdir", { pid: "0", name: "x" });
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toContain("只读模式");
     expect(calls).toHaveLength(0);
+    // 被闸门拦下的动作也要落审计（2026-11-23 新增：否则账本里看不见尝试）
+    expect(auditRecords).toHaveLength(1);
+    expect(auditRecords[0].result).toBe("failed");
+    expect(String(auditRecords[0].detail)).toContain("read_only_mode");
   });
 
   it("放开写工具后调用被放行", async () => {

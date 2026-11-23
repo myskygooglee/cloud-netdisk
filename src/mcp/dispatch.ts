@@ -57,6 +57,11 @@ export class ToolDispatcher {
 
     // 只读模式闸门：写工具默认关闭（先只读跑通链路，再逐步放开）
     if (def.mutating && !this.deps.isWriteEnabled()) {
+      this.deps.audit.write({
+        action: `tool:${name}`,
+        result: "failed",
+        detail: "read_only_mode: write tools are disabled",
+      });
       return fail(
         `工具 ${name} 属于写操作，当前插件处于「只读模式」。请在 Obsidian 设置 → 115 Cloud → 放开写工具 后重试。`,
       );

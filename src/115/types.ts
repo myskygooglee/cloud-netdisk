@@ -116,7 +116,8 @@ export function isFailedEnvelope(body: Raw115Envelope): boolean {
 /** 把 115 的错误响应拼成可读文本（带错误码，便于判断风控/限流）。 */
 export function describeEnvelopeError(body: Raw115Envelope): string {
   const err = rawStr(body.error) || "unknown error";
-  const errno = body.errno ?? (body as Record<string, unknown>).code ?? "?";
+  const errnoRaw = body.errno ?? (body as Record<string, unknown>).code;
+  const errno = typeof errnoRaw === "number" || typeof errnoRaw === "string" ? String(errnoRaw) : "?";
   return `${err}（errno=${errno}）`;
 }
 

@@ -114,6 +114,26 @@ describe("PolicyEngine · 开工前必查", () => {
       })),
     ).resolves.toBeTruthy();
   });
+
+  it("拒绝开工的报错要带出具体 details（2026-11-23 新增）", async () => {
+    const { engine } = makeEngine();
+    let msg = "";
+    try {
+      await engine.preflight(async () => ({
+        sessionOk: true,
+        riskOk: true,
+        storageOk: true,
+        planFresh: false,
+        details: "115_inventory.jsonl 生成于 2026-11-10，已过 313.2h（阈值 48h）",
+      }));
+    } catch (err) {
+      msg = (err as Error).message;
+    }
+    expect(msg).toContain("开工前必查未通过");
+    // 只说「清单过期」用户无从下手，必须告诉他是哪个文件、多旧
+    expect(msg).toContain("115_inventory.jsonl");
+    expect(msg).toContain("313.2h");
+  });
 });
 
 describe("删除路由策略", () => {

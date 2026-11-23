@@ -191,9 +191,12 @@ export class PolicyEngine {
     if (!result.storageOk) problems.push("容量信息读取失败");
     if (!result.planFresh) problems.push("计划清单缺失或生成时间超过 48 小时");
     if (problems.length) {
+      // 把 details 一并带进消息：只说「清单缺失或超时」用户无从下手，
+      // 至少要告诉他命中的是哪个文件、已经过了多少小时（2026-11-23 调试发现）。
+      const detail = result.details ? `（${result.details}）` : "";
       throw new P115Error(
         "unknown",
-        `开工前必查未通过：${problems.join("；")}`,
+        `开工前必查未通过：${problems.join("；")}${detail}`,
         JSON.stringify(result),
       );
     }
