@@ -37,12 +37,12 @@ describe("PolicyEngine · 串行与限速", () => {
     let active = 0;
     let maxActive = 0;
     const task = async () => {
-      active += 1;
-      maxActive = Math.max(maxActive, active);
       await engine.read(async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
         await new Promise((r) => setTimeout(r, 5));
+        active -= 1;
       });
-      active -= 1;
     };
     await Promise.all([task(), task(), task()]);
     expect(maxActive).toBe(1);

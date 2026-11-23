@@ -58,8 +58,8 @@ export class PolicyEngine {
 
   /** 串行队列：所有 115 调用都排队，永不并发 */
   private tail: Promise<unknown> = Promise.resolve();
-  private lastReadAt = 0;
-  private lastWriteAt = 0;
+  private lastReadAt: number | null = null;
+  private lastWriteAt: number | null = null;
   private writesSinceCooldown = 0;
   /** 连续写操作计数（达到上限后写操作被拒绝，直到 reset） */
   private consecutiveWrites = 0;
@@ -162,8 +162,8 @@ export class PolicyEngine {
   }
 
   /** 距上次操作的最小间隔等待。 */
-  private async waitGap(lastAt: number, minGapMs: number): Promise<void> {
-    if (!lastAt) return;
+  private async waitGap(lastAt: number | null, minGapMs: number): Promise<void> {
+    if (lastAt === null) return;
     const elapsed = this.now() - lastAt;
     const wait = minGapMs - elapsed;
     if (wait > 0) await this.sleep(wait);

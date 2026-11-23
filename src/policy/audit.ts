@@ -3,7 +3,7 @@
  * AGENTS.md 第三节要求盘点/操作结果落盘，字段至少包含 fid / size / sha1 / 完整路径。
  */
 
-import { appendFileSync } from "fs";
+import { appendFileSync, readFileSync } from "fs";
 import { join } from "path";
 
 export interface AuditRecord {
@@ -39,7 +39,7 @@ export class AuditLog {
   /** 读取最近 N 条（UI 展示用）。 */
   readRecent(limit = 50): AuditRecord[] {
     try {
-      const content = require("fs").readFileSync(this.file, "utf-8") as string;
+      const content = readFileSync(this.file, "utf-8") as string;
       const lines = content.trim().split("\n").filter(Boolean);
       return lines
         .slice(-limit)
