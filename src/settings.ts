@@ -33,6 +33,22 @@ export interface Cloud115Settings {
   planMaxAgeHours: number;
   /** 跨进程 115 锁目录（与 Python 侧 state 目录相同） */
   crossLockDir: string;
+  /** 一键备份：打包上传脚本路径 */
+  backupScriptPath: string;
+  /** 一键备份：python 解释器（空 = 自动探测 .venv） */
+  backupPythonPath: string;
+  /** 一键备份：115 上的备份根目录 */
+  backupRootDir: string;
+  /** 一键备份：子目录模板，{vault} 会被替换成库名 */
+  backupSubdirTemplate: string;
+  /** 一键备份：保留几个 zip（0 = 不限） */
+  backupKeep: number;
+  /** 一键备份：是否把 data.json（含凭据）也打进包 */
+  backupIncludeSecrets: boolean;
+  /** 一键备份：完成后的备份包名（空 = 默认 <VAULT><YYYYMMDD>.zip） */
+  backupNameTemplate: string;
+  /** 一键备份：本地临时 zip 目录（空 = 用脚本默认的 115-MCP-Server\_tmp） */
+  backupTmpDir: string;
 }
 
 export const DEFAULT_SETTINGS: Cloud115Settings = {
@@ -50,6 +66,14 @@ export const DEFAULT_SETTINGS: Cloud115Settings = {
   stateDir: "D:\\115-MCP-Server\\state\\inventory_full_20261123",
   planMaxAgeHours: 48,
   crossLockDir: "D:\\115-MCP-Server\\state",
+  backupScriptPath: "D:\\115-MCP-Server\\scripts\\vault_backup_115.py",
+  backupPythonPath: "",
+  backupRootDir: "[00]obsidian 备份  2026.11.20",
+  backupSubdirTemplate: "{vault} 参考资料",
+  backupKeep: 3,
+  backupIncludeSecrets: false,
+  backupNameTemplate: "",
+  backupTmpDir: "",
 };
 
 export class Cloud115SettingTab extends PluginSettingTab {
@@ -199,6 +223,105 @@ export class Cloud115SettingTab extends PluginSettingTab {
           this.plugin.settings.enableWriteTools = value;
           await this.plugin.saveSettings();
           new Notice(value ? "⚠️ 写工具已放开（仍受 AGENTS 策略约束）" : "已切换为只读模式");
+        }),
+      );
+
+    // ------------------------------------------------ 一键备份到 115
+    new Setting(containerEl).setName("一键备份到 115").setHeading();
+
+    new Setting(containerEl)
+      .setName("立即备份整个库")
+      .setDesc(
+        "打包整个 vault（含 .obsidian 插件配置）→ 上传到 115 的备份目录 → 校验 sha1 → 按保留数整理旧包。" +
+          "压缩由 7-Zip 完成，上传复用 115-MCP-Server 的分块上传逻辑。",
+      )
+      .addButton((btn) =>
+        btn
+          .setButtonText("开始备份")
+          .setCta()
+          .onClick(async () => {
+            await this.plugin.runVaultBackup();
+          }),
+      )
+      .addButton((btn) =>
+        btn.setButtonText("状态").onClick(() => {
+          new Notice(this.plugin.backupStatusText());
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("备份脚本路径")
+      .setDesc("vault_backup_115.py 的绝对路径。改脚本后无需重启插件。")
+      .addText((text) =>
+        text
+          .setPlaceholder("D:\\115-MCP-Server\\scripts\\vault_backup_115.py")
+          .setValue(this.plugin.settings.backupScriptPath)
+          .onChange(async (v) => {
+            this.plugin.settings.backupScriptPath = v.trim();
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("Python 解释器")
+      .setDesc("留空则自动探测脚本同级 .venv / D:\\115-MCP-Server\\.venv。")
+      .addText((text) =>
+        text
+          .setPlaceholder("D:\\115-MCP-Server\\.venv\\Scripts\\python.exe")
+          .setValue(this.plugin.settings.backupPythonPath)
+          .onChange(async (v) => {
+            this.plugin.settings.backupPythonPath = v.trim();
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("115 备份根目录")
+      .setDesc("必须已存在（不会自动创建，避免路径写错时凭空造目录树）。")
+      .addText((text) =>
+        text
+          .setPlaceholder("[00]obsidian 备份  2026.11.20")
+          .setValue(this.plugin.settings.backupRootDir)
+          .onChange(async (v) => {
+            this.plugin.settings.backupRootDir = v.trim();
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("子目录模板")
+      .setDesc("`{vault}` 会替换成库名。默认 `<库名> 参考资料`，即 `Books` → `obsidian备份/Books 参考资料`。")
+      .addText((text) =>
+        text
+          .setPlaceholder("{vault} 参考资料")
+          .setValue(this.plugin.settings.backupSubdirTemplate)
+          .onChange(async (v) => {
+            this.plugin.settings.backupSubdirTemplate = v.trim() || "{vault} 参考资料";
+            await this.plugin.saveSettings();
+          }),
+      );
+
+    new Setting(containerEl)
+      .setName("保留备份个数")
+      .setDesc("超出的旧包会移到同级的 `_过期备份/`（不直接删除）。0 = 不限。")
+      .addText((text) =>
+        text.setValue(String(this.plugin.settings.backupKeep)).onChange(async (v) => {
+          this.plugin.settings.backupKeep = Math.max(0, Number(v) || 0);
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("备份包里包含插件凭据")
+      .setDesc(
+        "⚠️ 默认关闭。打开后 `.obsidian/plugins/*/data.json`（含 115 Cookie、API key）会被打进 zip 并上传。" +
+          "你的 VAULT-BACKUP-SPEC 第 10 节要求「永远不要上 115」，一般不要开。",
+      )
+      .addToggle((toggle) =>
+        toggle.setValue(this.plugin.settings.backupIncludeSecrets).onChange(async (v) => {
+          this.plugin.settings.backupIncludeSecrets = v;
+          await this.plugin.saveSettings();
+          if (v) new Notice("⚠️ 备份包将包含 115 Cookie 与 API key，请确认你接受这个风险");
         }),
       );
 

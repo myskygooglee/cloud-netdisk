@@ -117,6 +117,21 @@ export class TreeView extends ItemView {
       this.searchResults = null;
       void this.render();
     });
+
+    // 备份按钮：整库打包上传 115（复用 Python 脚本，见 main.runVaultBackup）
+    const backupBar = head.createDiv({ cls: "cloud-netdisk-backup-bar" });
+    const backupBtn = backupBar.createEl("button", {
+      cls: "cloud-netdisk-backup-btn",
+      text: this.plugin.isBackupRunning ? "备份中…" : "⬆ 备份到 115",
+    });
+    backupBtn.setAttribute("title", "把整个库（含 .obsidian 配置）打成 zip 传到 115");
+    if (this.plugin.isBackupRunning) backupBtn.setAttribute("disabled", "true");
+    backupBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      void this.plugin.runVaultBackup();
+    });
+    const status = backupBar.createDiv({ cls: "cloud-netdisk-backup-status" });
+    status.setText(this.plugin.backupStatusText().split("\n")[0]);
   }
 
   private iconButton(parent: HTMLElement, icon: string, title: string, onClick: () => void): HTMLElement {

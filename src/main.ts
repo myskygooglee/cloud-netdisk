@@ -10,6 +10,7 @@ import { McpServerInfo, startMcpServer } from "./mcp/server";
 import { DEFAULT_SETTINGS, Cloud115Settings, Cloud115SettingTab } from "./settings";
 import { TreeView, VIEW_TYPE_115 } from "./ui/treeView";
 import { AGENT_GUIDE } from "./mcp/guidance";
+import { BackupHandle, describeProgress, resolvePath, startVaultBackup } from "./backup/vaultBackup";
 
 /** 剪贴板复制（优先 navigator.clipboard，失败时退回 DOM 复制）。 */
 async function copyToClipboard(text: string): Promise<boolean> {
@@ -39,6 +40,10 @@ export default class Cloud115Plugin extends Plugin {
   dispatcher!: ToolDispatcher;
   crossLock!: CrossProcessLock;
   private mcp: McpServerInfo | null = null;
+  /** 正在跑的备份（同一时刻只允许一个） */
+  private backup: BackupHandle | null = null;
+  private backupStatus = "从未运行";
+  private lastBackup: { ok: boolean; message: string; at: number } | null = null;
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -97,6 +102,18 @@ export default class Cloud115Plugin extends Plugin {
         const state = await this.auth.healthCheck();
         new Notice(state.fileApiOk ? `✅ 115 会话正常（${state.userName ?? "?"}）` : `❌ ${state.reason ?? "会话异常"}`);
       },
+    });
+
+    this.addCommand({
+      id: "backup-vault-to-115",
+      name: "备份整个库到 115",
+      callback: async () => {
+        await this.runVaultBackup();
+      },
+    });
+
+    this.addRibbonIcon("hard-drive-upload", "备份本库到 115", () => {
+      void this.runVaultBackup();
     });
 
     this.addSettingTab(new Cloud115SettingTab(this.app, this));
@@ -184,6 +201,110 @@ export default class Cloud115Plugin extends Plugin {
   /** 复制 agent 使用指引到剪贴板 */
   async copyAgentGuide(): Promise<boolean> {
     return copyToClipboard(AGENT_GUIDE);
+  }
+
+  // ------------------------------------------------------------ 一键备份
+
+  /** 备份状态（设置页 / Notice 展示） */
+  backupStatusText(): string {
+    const last = this.lastBackup
+      ? `上一次：${this.lastBackup.ok ? "成功" : "失败"} @ ${new Date(this.lastBackup.at).toLocaleString()} —— ${this.lastBackup.message}`
+      : "上一次：无记录";
+    return `当前：${this.backupStatus}\n${last}`;
+  }
+
+  get isBackupRunning(): boolean {
+    return this.backup !== null;
+  }
+
+  /**
+   * 一键备份：打包整个 vault → 上传 115 → 校验 sha1 → 整理旧包。
+   *
+   * 真正的活由 `D:\115-MCP-Server\scripts\vault_backup_115.py` 完成（7-Zip 打包 +
+   * p115client 分块上传 + 跨进程锁），插件只负责起进程、显示进度、记录结果。
+   */
+  async runVaultBackup(): Promise<void> {
+    if (this.backup) {
+      new Notice("备份正在进行中，请等它跑完。");
+      return;
+    }
+    // 跨进程锁：批处理在跑时不要凑热闹
+    const lock = this.crossLock.status();
+    if (lock.locked) {
+      new Notice(`⛔ 115 批处理正在运行（${lock.detail}），备份已取消。`);
+      return;
+    }
+
+    const vaultPath = this.getVaultPath();
+    if (!vaultPath) {
+      new Notice("❌ 无法确定 vault 的本地路径（仅桌面版支持）");
+      return;
+    }
+    const scriptPath = this.settings.backupScriptPath;
+    if (!scriptPath) {
+      new Notice("❌ 未配置备份脚本路径（设置 → 一键备份到 115）");
+      return;
+    }
+
+    const vaultName = this.app.vault.getName();
+    this.backupStatus = "正在准备…";
+    new Notice("开始备份：打包整个库（可能需要几分钟）…", 6000);
+
+    const handle = startVaultBackup(
+      {
+        vaultPath,
+        vaultName,
+        scriptPath,
+        pythonPath: this.settings.backupPythonPath,
+        backupRoot: this.settings.backupRootDir,
+        subdirTemplate: this.settings.backupSubdirTemplate,
+        keep: this.settings.backupKeep,
+        tmpDir: this.settings.backupTmpDir
+          ? resolvePath(vaultPath, this.settings.backupTmpDir)
+          : "",
+        includeSecrets: this.settings.backupIncludeSecrets,
+      },
+      (p) => {
+        this.backupStatus = describeProgress(p);
+        // 关键节点弹通知，否则只在状态栏更新
+        if (["packed", "upload", "verified", "done", "error"].includes(p.stage)) {
+          new Notice(`115 备份：${describeProgress(p)}`, p.stage === "error" ? 12000 : 6000);
+        }
+      },
+    );
+    this.backup = handle;
+
+    const code = await handle.done;
+    this.backup = null;
+    const ok = code === 0;
+    this.backupStatus = ok ? "空闲（上次成功）" : `空闲（上次失败，退出码 ${code}）`;
+    this.lastBackup = {
+      ok,
+      message: this.backupStatus,
+      at: Date.now(),
+    };
+    if (!ok) {
+      new Notice(`❌ 115 备份失败（退出码 ${code}）。详见开发者控制台。`, 12000);
+    }
+  }
+
+  /** 取 vault 的本地绝对路径（桌面版才有 FileSystemAdapter）。 */
+  private getVaultPath(): string | null {
+    const adapter = this.app.vault.adapter as { getBasePath?: () => string };
+    if (typeof adapter.getBasePath === "function") {
+      try {
+        return adapter.getBasePath();
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  cancelVaultBackup(): void {
+    this.backup?.cancel();
+    this.backup = null;
+    this.backupStatus = "已取消";
   }
 
   /** 取得（必要时创建）隔离目录，返回其 cid */
