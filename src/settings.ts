@@ -1,5 +1,6 @@
 import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import { QrLogin } from "./115/qrcode";
+import { READ_ONLY_BANNER, WRITE_MODE_BANNER } from "./mcp/guidance";
 import type Obsidian115Plugin from "./main";
 
 export interface Obsidian115Settings {
@@ -188,6 +189,22 @@ export class Obsidian115SettingTab extends PluginSettingTab {
           this.plugin.settings.enableWriteTools = value;
           await this.plugin.saveSettings();
           new Notice(value ? "⚠️ 写工具已放开（仍受 AGENTS 策略约束）" : "已切换为只读模式");
+        }),
+      );
+
+    // ------------------------------------------------ 使用指引（引导文案）
+    const guideBox = containerEl.createDiv({ cls: "obsidian-115-guide" });
+    const guideTitle = guideBox.createEl("h4", { text: "使用指引" });
+    guideTitle.setAttribute("style", "margin-bottom:6px");
+    const guideText = guideBox.createEl("div", { cls: "obsidian-115-guide-text" });
+    guideText.setText(this.plugin.settings.enableWriteTools ? WRITE_MODE_BANNER : READ_ONLY_BANNER);
+    new Setting(containerEl)
+      .setName("复制 agent 使用指引")
+      .setDesc("把这段说明贴给 Copilot / 其它 agent，让它知道工具边界与红线。")
+      .addButton((btn) =>
+        btn.setButtonText("复制").onClick(async () => {
+          const ok = await this.plugin.copyAgentGuide();
+          new Notice(ok ? "✅ 使用指引已复制" : "⚠️ 复制失败");
         }),
       );
 

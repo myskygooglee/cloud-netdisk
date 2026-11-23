@@ -5,6 +5,8 @@
  * 因此这里所有写工具的 schema **只接受单数参数**，不接受数组。
  */
 
+import { READ_ONLY_HINT, WRITE_HINT } from "./guidance";
+
 export interface ToolParam {
   name: string;
   type: "string" | "number" | "boolean";
@@ -131,7 +133,8 @@ export function toolSchemas(): Array<{
     }
     return {
       name: t.name,
-      description: t.description,
+      // 描述里带上安全提示，让 agent 自己就知道红线（只改文案，不改行为）
+      description: `${t.description} ${t.mutating ? WRITE_HINT : READ_ONLY_HINT}`,
       inputSchema: {
         type: "object" as const,
         properties,

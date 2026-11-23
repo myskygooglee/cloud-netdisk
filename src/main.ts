@@ -7,6 +7,27 @@ import { ToolDispatcher } from "./mcp/dispatch";
 import { McpServerInfo, startMcpServer } from "./mcp/server";
 import { DEFAULT_SETTINGS, Obsidian115Settings, Obsidian115SettingTab } from "./settings";
 import { TreeView, VIEW_TYPE_115 } from "./ui/treeView";
+import { AGENT_GUIDE } from "./mcp/guidance";
+
+/** 剪贴板复制（优先 navigator.clipboard，失败时退回 DOM 复制）。 */
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
 
 export default class Obsidian115Plugin extends Plugin {
   settings: Obsidian115Settings = { ...DEFAULT_SETTINGS };
@@ -142,23 +163,12 @@ export default class Obsidian115Plugin extends Plugin {
   async copyMcpConfig(): Promise<boolean> {
     const text = this.buildMcpConfig();
     if (!text) return false;
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // 剪贴板不可用时退回到 DOM 复制
-      try {
-        const ta = document.createElement("textarea");
-        ta.value = text;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-        return true;
-      } catch {
-        return false;
-      }
-    }
+    return copyToClipboard(text);
+  }
+
+  /** 复制 agent 使用指引到剪贴板 */
+  async copyAgentGuide(): Promise<boolean> {
+    return copyToClipboard(AGENT_GUIDE);
   }
 
   /** 取得（必要时创建）隔离目录，返回其 cid */
